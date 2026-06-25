@@ -25,6 +25,12 @@ final class UnixSocketServer {
         guard pathBytes.count < Self.maxPathLength else {
             throw AgentError.socket("socket path too long: \(pathBytes.count) bytes, max \(Self.maxPathLength - 1): \(path)")
         }
+        // ensure the socket's parent dir exists and is private (mirror OpenSSH ~/.ssh handling)
+        let dir = (path as NSString).deletingLastPathComponent
+        if !dir.isEmpty {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
+                                                     attributes: [.posixPermissions: 0o700])
+        }
         unlink(path)   // clear any stale socket
 
         fd = socket(AF_UNIX, SOCK_STREAM, 0)

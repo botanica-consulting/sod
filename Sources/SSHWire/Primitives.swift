@@ -56,12 +56,6 @@ public struct ByteReader {
     public var remaining: Int { bytes.count - pos }
     public var isAtEnd: Bool { pos >= bytes.count }
 
-    public mutating func readByte() throws -> UInt8 {
-        guard pos < bytes.count else { throw WireError.truncated }
-        defer { pos += 1 }
-        return bytes[pos]
-    }
-
     public mutating func readUInt32() throws -> UInt32 {
         guard remaining >= 4 else { throw WireError.truncated }
         let v = (UInt32(bytes[pos]) << 24)

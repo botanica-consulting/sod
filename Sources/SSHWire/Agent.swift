@@ -30,10 +30,14 @@ extension SSHWire {
         case signRequest(keyBlob: Data, data: Data, flags: UInt32)
         // We repurpose the smartcard messages: `provider` is an SE handle file or a
         // directory of handles, not a PKCS#11 library. `ssh-add -s` / `ssh-add -e`.
-        case addSmartcardKey(provider: String, pin: String)
-        case removeSmartcardKey(provider: String, pin: String)
+        // The wire PIN field is parsed but dropped (the SE gates on Touch ID).
+        case addSmartcardKey(provider: String)
+        case removeSmartcardKey(provider: String)
         case unsupported(type: UInt8)
     }
+
+    /// Max ssh-agent message size we accept (bounds allocation against a hostile length prefix).
+    public static let maxAgentMessage = 256 * 1024
 
     // MARK: - Framing
 
@@ -48,7 +52,8 @@ extension SSHWire {
         let len = Int(try r.readUInt32())
         guard len >= 1 else { throw WireError.malformed("zero-length message") }
         let body = try r.readBytes(len)
-        return (body.first!, Data(body.dropFirst()))
+        guard let type = body.first else { throw WireError.malformed("empty message body") }
+        return (type, Data(body.dropFirst()))
     }
 
     // MARK: - Responses
@@ -92,22 +97,17 @@ extension SSHWire {
             }
             return .signRequest(keyBlob: keyBlob, data: data, flags: flags)
 
-        case Agent.addSmartcardKey, Agent.addSmartcardKeyConstrained:
-            // constrained variant has trailing constraints we ignore — provider+pin is enough
+        case Agent.addSmartcardKey, Agent.addSmartcardKeyConstrained, Agent.removeSmartcardKey:
+            // provider path, then a PIN we read only to stay wire-aligned and discard;
+            // the constrained variant's trailing constraints are ignored.
             var r = ByteReader(payload)
-            guard let prov = try? r.readString(), let pin = try? r.readString() else {
+            guard let prov = try? r.readString(), (try? r.readString()) != nil else {
                 return .unsupported(type: type)
             }
-            return .addSmartcardKey(provider: String(decoding: prov, as: UTF8.self),
-                                    pin: String(decoding: pin, as: UTF8.self))
-
-        case Agent.removeSmartcardKey:
-            var r = ByteReader(payload)
-            guard let prov = try? r.readString(), let pin = try? r.readString() else {
-                return .unsupported(type: type)
-            }
-            return .removeSmartcardKey(provider: String(decoding: prov, as: UTF8.self),
-                                       pin: String(decoding: pin, as: UTF8.self))
+            let provider = String(decoding: prov, as: UTF8.self)
+            return type == Agent.removeSmartcardKey
+                ? .removeSmartcardKey(provider: provider)
+                : .addSmartcardKey(provider: provider)
 
         default:
             return .unsupported(type: type)

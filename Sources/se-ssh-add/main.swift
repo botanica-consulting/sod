@@ -39,7 +39,7 @@ import Darwin
 #endif
 
 private let tool = "se-ssh-add"
-private let maxMessage = 256 * 1024
+private let maxMessage = SSHWire.maxAgentMessage
 
 private func elog(_ s: String) { FileHandle.standardError.write(Data("\(tool): \(s)\n".utf8)) }
 private func errExit(_ s: String) -> Never { elog(s); exit(1) }
@@ -108,7 +108,8 @@ private func transact(socket path: String, _ request: Data) -> (type: UInt8, pay
     var r = ByteReader(lenData)
     guard let len = try? r.readUInt32(), len >= 1, Int(len) <= maxMessage,
           let body = readExactly(fd, Int(len)) else { errExit("malformed response from agent") }
-    return (body.first!, Data(body.dropFirst()))
+    guard let type = body.first else { errExit("empty response from agent") }
+    return (type, Data(body.dropFirst()))
 }
 
 // MARK: - actions

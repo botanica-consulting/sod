@@ -32,7 +32,10 @@ private func shortHostname() -> String {
 private func writeFile(_ path: String, _ data: Data, mode: Int) throws {
     let fm = FileManager.default
     let parent = (path as NSString).deletingLastPathComponent
-    if !parent.isEmpty { try fm.createDirectory(atPath: parent, withIntermediateDirectories: true) }
+    if !parent.isEmpty {
+        try fm.createDirectory(atPath: parent, withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+    }
     guard fm.createFile(atPath: path, contents: data,
                         attributes: [.posixPermissions: NSNumber(value: mode)]) else {
         throw KeyBackendError.create("could not write \(path)")
@@ -41,8 +44,7 @@ private func writeFile(_ path: String, _ data: Data, mode: Int) throws {
 
 private func runKeygen() {
     if Backends.isMock {
-        FileHandle.standardError.write(Data(
-            "\(tool): WARNING built with SE_SSH_MOCK — key is NOT in the Secure Enclave (development only)\n".utf8))
+        FileHandle.standardError.write(Data("\(tool): \(Backends.mockWarning)\n".utf8))
     }
 
     var path = expandTilde("~/.ssh/id_ecdsa_se")
@@ -91,9 +93,14 @@ private func runKeygen() {
 
     do {
         try writeFile(path, HandleFile.encode(kind: backend.kind, handle: created.handle), mode: 0o600)
+    } catch { errExit("\(error)") }
+    do {
         let line = SSHWire.ecdsaP256PublicKeyLine(x963: created.publicKeyX963, comment: comment) + "\n"
         try writeFile(path + ".pub", Data(line.utf8), mode: 0o644)
-    } catch { errExit("\(error)") }
+    } catch {
+        try? FileManager.default.removeItem(atPath: path)   // don't leave a handle with no .pub
+        errExit("\(error)")
+    }
 
     print("Your Secure-Enclave SSH key has been created.")
     print("  handle file:  \(path)")

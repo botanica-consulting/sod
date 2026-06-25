@@ -50,8 +50,9 @@ public enum HandleFile {
     }
 
     public static func isHandleFile(_ data: Data) -> Bool {
+        // require magic + at least the kind byte, so this agrees with decode()
         let b = [UInt8](data)
-        return b.count >= magic.count && Array(b.prefix(magic.count)) == magic
+        return b.count > magic.count && Array(b.prefix(magic.count)) == magic
     }
 
     public static func decode(_ data: Data) -> (kind: UInt8, handle: Data)? {
@@ -86,4 +87,8 @@ public enum Backends {
         return false
         #endif
     }
+
+    /// Single source of truth for the dev-build warning printed by the CLIs.
+    public static let mockWarning =
+        "WARNING built with SE_SSH_MOCK — uses a plain in-process P-256 key, NOT the Secure Enclave (development only)"
 }

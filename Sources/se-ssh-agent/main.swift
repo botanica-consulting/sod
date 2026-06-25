@@ -6,7 +6,7 @@ import Darwin
 #endif
 
 private let tool = "se-ssh-agent"
-private let maxMessage = 256 * 1024   // ssh-agent messages are tiny; cap to bound allocations
+private let maxMessage = SSHWire.maxAgentMessage   // bound allocations against a hostile length prefix
 
 private func elog(_ msg: String) { FileHandle.standardError.write(Data("\(tool): \(msg)\n".utf8)) }
 private func errExit(_ msg: String) -> Never { elog(msg); exit(1) }
@@ -85,13 +85,14 @@ private func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Dat
                 return SSHWire.failure()
             }
         }
-        return SSHWire.failure()   // no matching key loaded
+        elog("sign: no loaded key matches the requested public key")
+        return SSHWire.failure()
 
-    case .addSmartcardKey(let provider, _):        // ssh-add -s <provider>
+    case .addSmartcardKey(let provider):           // ssh-add -s <provider>
         if state.add(provider) { elog("loaded \(provider)"); return SSHWire.success() }
         elog("no se-ssh handle at \(provider)"); return SSHWire.failure()
 
-    case .removeSmartcardKey(let provider, _):     // ssh-add -e <provider>
+    case .removeSmartcardKey(let provider):        // ssh-add -e <provider>
         if state.remove(provider) { elog("unloaded \(provider)"); return SSHWire.success() }
         return SSHWire.failure()
 
@@ -208,7 +209,7 @@ private func run() {
 
     // -E: lazily ensure a daemon is up, then print env (stdout = eval-clean).
     if envMode {
-        if Backends.isMock { elog("WARNING SE_SSH_MOCK build — plain key, NOT the Secure Enclave") }
+        if Backends.isMock { elog(Backends.mockWarning) }
         if !isSocketLive(socketPath) {
             spawnDaemon(socketPath: socketPath, providers: providers)
             var tries = 0
@@ -217,14 +218,15 @@ private func run() {
             elog("started agent on \(socketPath)")
         } else {
             elog("reusing agent already on \(socketPath)")
+            if !providers.isEmpty {
+                elog("note: agent already running — preloaded key args ignored; load with se-ssh-add / ssh-add -s")
+            }
         }
         emitEnv(socketPath: socketPath, shell: shell ?? detectShell())
         exit(0)
     }
 
-    if Backends.isMock {
-        elog("WARNING built with SE_SSH_MOCK — signatures use a plain in-process key, NOT the Secure Enclave (development only)")
-    }
+    if Backends.isMock { elog(Backends.mockWarning) }
 
     let logDir = (socketPath as NSString).deletingLastPathComponent
     if daemonMode { daemonize(logDir: logDir.isEmpty ? "." : logDir) }

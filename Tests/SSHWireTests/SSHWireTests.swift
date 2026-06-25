@@ -146,16 +146,17 @@ final class Harness {
         eq(SSHWire.parseRequest(type: 13, payload: Data([0, 0, 0, 5, 1, 2])),
            .unsupported(type: 13), "parse malformed sign -> unsupported")
 
-        // smartcard messages (ssh-add -s / -e); provider reinterpreted as an SE handle path
+        // smartcard messages (ssh-add -s / -e); provider reinterpreted as an SE handle path,
+        // PIN field parsed-and-discarded
         let add = SSHWire.string("/path/to/key") + SSHWire.string("")
         eq(SSHWire.parseRequest(type: 20, payload: add),
-           .addSmartcardKey(provider: "/path/to/key", pin: ""), "parse add-smartcard (-s)")
-        let addc = SSHWire.string("/p") + SSHWire.string("pin") + Data([0, 0, 0, 0])  // trailing constraints ignored
+           .addSmartcardKey(provider: "/path/to/key"), "parse add-smartcard (-s)")
+        let addc = SSHWire.string("/p") + SSHWire.string("pin") + Data([0, 0, 0, 0])  // pin + trailing constraints ignored
         eq(SSHWire.parseRequest(type: 26, payload: addc),
-           .addSmartcardKey(provider: "/p", pin: "pin"), "parse add-smartcard-constrained")
+           .addSmartcardKey(provider: "/p"), "parse add-smartcard-constrained")
         let rem = SSHWire.string("/path/to/key") + SSHWire.string("")
         eq(SSHWire.parseRequest(type: 21, payload: rem),
-           .removeSmartcardKey(provider: "/path/to/key", pin: ""), "parse remove-smartcard (-e)")
+           .removeSmartcardKey(provider: "/path/to/key"), "parse remove-smartcard (-e)")
     }
 
     func finishAndExit() -> Never {
