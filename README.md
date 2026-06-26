@@ -5,7 +5,7 @@
 
 # sod
 
-**Your SSH key, sealed in the Secure Enclave. Touch ID to sign.**
+**SSH native keys, sealed in the Secure Enclave. Use Touch ID to login.**
 
 [![CI](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml/badge.svg)](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -17,11 +17,10 @@
 `sod` keeps an SSH authentication key **inside the Secure Enclave** — the private key
 is generated there and never leaves it — and serves it to stock OpenSSH over the
 ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
-`ecdsa-sha2-nistp256`, so any server, GitHub included, accepts it; no FIDO/`sk-`
+`ecdsa-sha2-nistp256`, accepted by any SSH server; no FIDO/`sk-`
 support required on the other end.
 
-One binary, three subcommands that mirror the OpenSSH tools they imitate:
-
+`sod` has the same usage as the bog-standard OpenSSH tooling - just prefix with `sod` and the rest takes care of itself.
 | Command | Like | Does |
 |---|---|---|
 | `sod ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
@@ -32,13 +31,12 @@ One binary, three subcommands that mirror the OpenSSH tools they imitate:
 
 - **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
   secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
-- **Presence on every signature.** Access policy is `.userPresence` — Touch ID with
-  passcode fallback, durable across fingerprint re-enrollment. N connections = N taps.
+- **Presence on every signature.** Touch ID with
+  passcode fallback, durable across fingerprint re-enrollment.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
-- **Coexists.** Never touches your default `SSH_AUTH_SOCK` unless you ask, so it lives
-  happily alongside 1Password / Secretive.
-- **Lean.** A single notarizable binary; one dependency (Apple's swift-argument-parser).
+- **Zero conf.** Runs as an independant ssh agent, does not meddle with your other SSH key flows.
+- **Lean.** A single notarized binary, linked solely with Apple code - zero third-party dependencies.
 
 ## Requirements
 
@@ -54,7 +52,7 @@ One binary, three subcommands that mirror the OpenSSH tools they imitate:
 brew install botanica-consulting/tap/sod
 ```
 
-### Notarized installer
+### Packaged installer
 
 Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
 and open it. It installs `sod` to `/usr/local/bin` and its man page — nothing else.
@@ -76,7 +74,7 @@ sod ssh-add                    # loads ~/.ssh/id_sod into the agent
 ssh -i ~/.ssh/id_sod user@host # Touch ID prompts on connect
 ```
 
-## Usage
+## Advanced usage
 
 **Generate a key.** The default `~/.ssh/id_sod` never collides with your normal
 `id_ecdsa`/`id_ed25519`. Or put it anywhere:
@@ -119,13 +117,7 @@ ssh-copy-id -i ~/.ssh/id_sod.pub user@host
 ssh user@host                  # Touch ID on connect
 ```
 
-**GitHub.** Add `~/.ssh/id_sod.pub` to GitHub → *Settings → SSH and GPG keys*, then:
-
-```sh
-ssh -T git@github.com          # Touch ID; "Hi <you>! You've successfully authenticated"
-```
-
-**Interop with stock tooling (advanced).** `sod ssh-add` is just a convenience client;
+**Interop with stock tooling.** `sod ssh-add` is just a convenience client;
 the agent also speaks to stock `ssh-add`, which loads Secure-Enclave handles via its
 smartcard messages:
 
@@ -184,13 +176,6 @@ from any release build (which prints a loud warning if you somehow build one). S
 - `Sources/sod/` — the thin `@main` entry point.
 - `Tests/SodTests/`, `scripts/`, `packaging/`, `man/`, `docs/` — tests, build &
   packaging, the man page, and design notes (`docs/PLAN.md`, `docs/M0-RESULT.md`).
-
-## Why not the Mac App Store?
-
-The App Store requires a sandboxed `.app`. A sandboxed app can't install a tool onto
-your `PATH`, can't write a man page, and can't bind a unix socket in `~/.ssh` that the
-system `ssh` can reach — the very things that make `sod` useful. So `sod` ships as a
-notarized Developer-ID `.pkg` and via Homebrew, the idiomatic channels for a CLI.
 
 ## License
 
