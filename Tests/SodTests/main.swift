@@ -8,6 +8,7 @@ import Foundation
 
 let harness = Harness()
 harness.runWireSuite()
+runInstallSuite(harness)
 #if SE_SSH_MOCK
 runKeyStoreSuite(harness)
 runAgentSuite(harness)

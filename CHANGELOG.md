@@ -12,8 +12,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `sod ssh-keygen -y` to reprint a public-key line from a handle; faithful
   `ssh-keygen`-style output with a SHA256 fingerprint.
 - `sod ssh-agent`: persistent + reuse model on a fixed `~/.ssh/sod-agent.sock`,
-  `-d` foreground mode, `-k` to kill, faithful `-s`/`-c` shell dialects, and
-  `--install-launch-agent` / `--uninstall-launch-agent` for login auto-start.
+  `-d` foreground mode, `-k` to kill, and faithful `-s`/`-c` shell dialects.
+- `sod install` / `sod uninstall`: one-step login setup — installs a per-user
+  LaunchAgent and prints the shell-specific `SSH_AUTH_SOCK` line to paste into
+  your startup file (detects zsh/bash/fish/csh).
 - `sod ssh-add`: loads `~/.ssh/id_sod` by default; `-D` removes all keys.
 - Packaging: universal (arm64+x86_64) binary, notarizable `.pkg` (signing opt-in),
   Homebrew tap formula, tag-driven GitHub Release workflow, and a man page.

@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Reference copy of the per-user LaunchAgent. The canonical template is embedded in
-     SodKit/LaunchAgent.swift and written (with paths substituted) by
-     `sod ssh-agent --install-launch-agent`. Placeholders __SOD_BIN__ / __SOCK__ below
-     are filled in at install time. It MUST be a LaunchAgent (GUI session), never a
-     LaunchDaemon, or Touch ID cannot present. -->
+     SodKit/LaunchAgent.swift and written (with paths substituted) by `sod install`.
+     Placeholders __SOD_BIN__ / __SOCK__ below are filled in at install time. It MUST be
+     a LaunchAgent (GUI session), never a LaunchDaemon, or Touch ID cannot present. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>

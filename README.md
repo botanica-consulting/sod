@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- Branding: drop the banner at docs/assets/sod-banner.png and replace this block with
-     <picture><source ... media="(prefers-color-scheme: dark)"><img src="docs/assets/sod-banner.png" ...></picture> -->
+<img src="docs/assets/sod-logo.png" width="170" alt="sod logo — a patch of grass on a soil block"/>
 
 # sod
 

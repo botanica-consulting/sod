@@ -2,14 +2,12 @@
 <body style="font-family:-apple-system,Helvetica,sans-serif;font-size:13px;margin:1em">
 <h2>sod is installed</h2>
 <p><code>sod</code> is in <code>/usr/local/bin</code>. Get started:</p>
-<pre style="background:#f4f4f4;padding:10px;border-radius:6px">sod ssh-keygen -f ~/.ssh/id_sod
-eval "$(sod ssh-agent)"
-sod ssh-add ~/.ssh/id_sod
-ssh -i ~/.ssh/id_sod user@host</pre>
-<p>To start the agent automatically at login (optional):</p>
-<pre style="background:#f4f4f4;padding:10px;border-radius:6px">sod ssh-agent --install-launch-agent
-# then add to your shell profile:
-export SSH_AUTH_SOCK="$HOME/.ssh/sod-agent.sock"</pre>
+<pre style="background:#f4f4f4;padding:10px;border-radius:6px">sod ssh-keygen     # create ~/.ssh/id_sod
+sod install        # run the agent at login + print the line for your shell
+sod ssh-add        # load the key</pre>
+<p><code>sod install</code> prints one <code>SSH_AUTH_SOCK</code> line to paste into your shell
+startup file (<code>~/.zshrc</code>, <code>~/.bash_profile</code>, <code>config.fish</code>, …).
+Open a new shell, then <code>ssh</code> as usual — Touch ID prompts on each connection.</p>
 <p>See <code>man sod</code> for full documentation.</p>
 </body>
 </html>

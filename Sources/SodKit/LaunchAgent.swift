@@ -5,9 +5,9 @@ import Darwin
 #endif
 
 /// Optional per-user LaunchAgent that keeps `sod ssh-agent` running on a fixed
-/// socket across logins. Installed only on explicit request
-/// (`sod ssh-agent --install-launch-agent`); the .pkg never writes it. It must be a
-/// LaunchAgent (GUI session), never a LaunchDaemon, or Touch ID cannot present.
+/// socket across logins. Installed only on explicit request (`sod install`); the .pkg
+/// never writes it. It must be a LaunchAgent (GUI session), never a LaunchDaemon, or
+/// Touch ID cannot present.
 enum LaunchAgentManager {
     static let label = "consulting.botanica.sod.agent"
 
@@ -60,11 +60,7 @@ enum LaunchAgentManager {
         guard rc == 0 else {
             return (false, "wrote \(path) but `launchctl bootstrap` failed (exit \(rc))")
         }
-        return (
-            true,
-            "installed \(label)\n  plist:  \(path)\n  socket: \(socketPath)\n"
-                + "add to your shell profile:  export SSH_AUTH_SOCK=\"\(socketPath)\""
-        )
+        return (true, "installed \(label)")
     }
 
     static func uninstall() -> (ok: Bool, message: String) {

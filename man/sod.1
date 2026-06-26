@@ -22,6 +22,11 @@
 .Op Fl a Ar socket
 .Oo Fl d | Fl D | Fl l | Fl L Oc
 .Op Ar keyfile ...
+.Nm
+.Cm install
+.Op Fl a Ar socket
+.Nm
+.Cm uninstall
 .Sh DESCRIPTION
 .Nm
 keeps an SSH authentication key in the Secure Enclave and serves it to stock
@@ -64,11 +69,11 @@ Force Bourne-shell (sh) or C-shell (csh) env output (default: detect from
 Foreground mode: bind and serve, do not fork (debugging / LaunchAgent).
 .It Fl k
 Kill the agent running on the socket.
-.It Fl Fl install-launch-agent
-Install a per-user LaunchAgent that starts the agent at login.
-.It Fl Fl uninstall-launch-agent
-Remove that LaunchAgent.
 .El
+.Pp
+To run the agent automatically at login, see
+.Cm sod install
+below.
 .Ss sod ssh-add
 Load, unload, or list keys.
 With no arguments, loads the default key
@@ -89,6 +94,31 @@ List loaded keys as fingerprints
 or full public keys
 .Pq Fl L .
 .El
+.Ss sod install
+Install a per-user LaunchAgent that runs
+.Cm sod ssh-agent
+on a fixed socket at login (restarting it if it exits), then print the single
+line to add to your shell startup file so every shell finds it.
+This is the recommended setup after installing
+.Nm ;
+it never edits your shell files itself.
+.Bl -tag -width "-a socket"
+.It Fl a Ar socket
+Socket path (default
+.Pa ~/.ssh/sod-agent.sock ) .
+.El
+.Pp
+To use
+.Nm
+for only some hosts and keep your existing agent for the rest, skip the
+.Ev SSH_AUTH_SOCK
+line and instead set
+.Cm IdentityAgent ~/.ssh/sod-agent.sock
+per-host in
+.Xr ssh_config 5 .
+.Ss sod uninstall
+Remove the LaunchAgent installed by
+.Cm sod install .
 .Sh ENVIRONMENT
 .Bl -tag -width SSH_AUTH_SOCK
 .It Ev SSH_AUTH_SOCK
@@ -105,7 +135,15 @@ Default public key.
 Default agent socket.
 .El
 .Sh EXAMPLES
-Generate a key, start the agent, load it, and connect:
+Set it up to run at login (recommended), then follow the printed instructions
+and load the key:
+.Bd -literal -offset indent
+sod ssh-keygen
+sod install
+sod ssh-add
+.Ed
+.Pp
+Or run a throwaway agent in the current shell, load a key, and connect:
 .Bd -literal -offset indent
 sod ssh-keygen -f ~/.ssh/id_sod
 eval \&"$(sod ssh-agent)\&"
