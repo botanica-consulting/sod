@@ -21,11 +21,15 @@ ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
 support required on the other end.
 
 `sod` has the same usage as the bog-standard OpenSSH tooling - just prefix with `sod` and the rest takes care of itself.
+
 | Command | Like | Does |
 |---|---|---|
 | `sod ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
 | `sod ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
 | `sod ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
+
+Plus **`sod install`** — the one-step login setup: it runs the agent at every login and
+prints the single line to add to your shell startup file (`sod uninstall` reverses it).
 
 ## Why sod
 
@@ -35,7 +39,7 @@ support required on the other end.
   passcode fallback, durable across fingerprint re-enrollment.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
-- **Zero conf.** Runs as an independant ssh agent, does not meddle with your other SSH key flows.
+- **Zero conf.** Runs as an independent ssh agent, does not meddle with your other SSH key flows.
 - **Lean.** A single notarized binary, linked solely with Apple code - zero third-party dependencies.
 
 ## Requirements
@@ -68,11 +72,16 @@ make install      # builds a universal binary, installs to /usr/local (sudo)
 ## Quickstart
 
 ```sh
-sod ssh-keygen                 # creates ~/.ssh/id_sod (+ .pub); no Touch ID at creation
-eval "$(sod ssh-agent)"        # starts/reuses the agent, exports SSH_AUTH_SOCK
-sod ssh-add                    # loads ~/.ssh/id_sod into the agent
-ssh -i ~/.ssh/id_sod user@host # Touch ID prompts on connect
+brew install botanica-consulting/tap/sod
+sod ssh-keygen          # create ~/.ssh/id_sod (+ .pub); no Touch ID yet
+sod install             # run the agent at login + print the line for your shell startup file
+sod ssh-add             # load ~/.ssh/id_sod into the agent
 ```
+
+`sod install` prints the exact `SSH_AUTH_SOCK` line for your shell — paste it into the
+startup file it names, open a new shell, and `ssh` will use sod (Touch ID on every
+connection). Authorize the key on your server first with
+`ssh-copy-id -i ~/.ssh/id_sod.pub user@host`.
 
 ## Advanced usage
 
@@ -85,20 +94,47 @@ sod ssh-keygen -f ~/keys/work -C "me@work"  # -> ~/keys/work  (+ work.pub)
 sod ssh-keygen -y -f ~/keys/work            # reprint the .pub line from a handle
 ```
 
-**Run the agent.** With no options it starts an agent (or reuses a running one) on the
-fixed socket `~/.ssh/sod-agent.sock` and prints the env to use it:
+**Run the agent.** `sod install` is the recommended path: it installs a per-user
+LaunchAgent that keeps the agent on the fixed socket `~/.ssh/sod-agent.sock` across
+logins, then prints the one line to add to your shell startup file. `sod uninstall`
+reverses it.
 
 ```sh
-eval "$(sod ssh-agent)"        # sh/zsh/csh/fish auto-detected (-s / -c to force)
+sod install                    # agent at login + the SSH_AUTH_SOCK line for your shell
+sod uninstall                  # remove the LaunchAgent
+```
+
+Prefer a throwaway agent in the current shell instead (no LaunchAgent)? Use the faithful
+`ssh-agent` form:
+
+```sh
+eval "$(sod ssh-agent)"        # sh/zsh/bash/csh/fish auto-detected (-s / -c to force)
 sod ssh-agent -k               # stop it
 ```
 
-To start it automatically at every login (optional):
+**Point `ssh` at the agent.** `SSH_AUTH_SOCK` names a *single* agent, so you choose
+whether sod is your only agent or coexists with another (1Password, Secretive, …):
 
-```sh
-sod ssh-agent --install-launch-agent
-# then add to your shell profile so every shell finds it:
-echo 'export SSH_AUTH_SOCK="$HOME/.ssh/sod-agent.sock"' >> ~/.zshrc
+*Use sod everywhere* — add the line `sod install` printed to your shell startup file:
+
+| shell | file | line |
+|---|---|---|
+| zsh | `~/.zshrc` | `export SSH_AUTH_SOCK="$HOME/.ssh/sod-agent.sock"` |
+| bash | `~/.bash_profile` | `export SSH_AUTH_SOCK="$HOME/.ssh/sod-agent.sock"` |
+| fish | `~/.config/fish/config.fish` | `set -gx SSH_AUTH_SOCK "$HOME/.ssh/sod-agent.sock"` |
+
+*Use sod for some hosts only* — leave `SSH_AUTH_SOCK` alone and route per-host in
+`~/.ssh/config`, so your other agent keeps serving everything else:
+
+```
+Host git.example.com
+    IdentityAgent ~/.ssh/sod-agent.sock
+
+Host prod
+    HostName prod.example.com
+    IdentityAgent ~/.ssh/sod-agent.sock
+    IdentityFile  ~/.ssh/id_sod.pub      # pin this key…
+    IdentitiesOnly yes                   # …and offer only it
 ```
 
 **Load / list / unload keys** (no PIN prompt, unlike stock `ssh-add -s`):
@@ -180,3 +216,5 @@ from any release build (which prints a loud warning if you somehow build one). S
 ## License
 
 [MIT](LICENSE) © Botanica Software Labs. A Botanica Software Labs product.
+
+<a href="https://botanica.consulting"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/botanica-software-labs-light.png"><img src="docs/assets/botanica-software-labs.png" width="220" alt="Botanica Software Labs"></picture></a>
