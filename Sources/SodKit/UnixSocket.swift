@@ -71,25 +71,33 @@ final class UnixSocketServer {
 
 /// Probe whether something is accepting connections at `path` (a live agent).
 func isSocketLive(_ path: String) -> Bool {
-    let pathBytes = Array(path.utf8)
-    guard pathBytes.count < UnixSocketServer.maxPathLength else { return false }
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    let fd = connectUnix(path)
     guard fd >= 0 else { return false }
-    defer { close(fd) }
+    close(fd)
+    return true
+}
+
+/// Connect a new client socket to the agent at `path`; returns -1 on failure.
+func connectUnix(_ path: String) -> Int32 {
+    let bytes = Array(path.utf8)
+    guard bytes.count < UnixSocketServer.maxPathLength else { return -1 }
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return -1 }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
     withUnsafeMutablePointer(to: &addr.sun_path) {
         $0.withMemoryRebound(to: CChar.self, capacity: UnixSocketServer.maxPathLength) { dst in
-            for (i, b) in pathBytes.enumerated() { dst[i] = CChar(bitPattern: b) }
-            dst[pathBytes.count] = 0
+            for (i, b) in bytes.enumerated() { dst[i] = CChar(bitPattern: b) }
+            dst[bytes.count] = 0
         }
     }
     let len = socklen_t(MemoryLayout<sockaddr_un>.size)
     let r = withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, len) }
     }
-    return r == 0
+    if r != 0 { close(fd); return -1 }
+    return fd
 }
 
 /// Read exactly `n` bytes (handling short reads); nil on EOF/error.

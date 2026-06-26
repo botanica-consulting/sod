@@ -1,7 +1,12 @@
 # SwiftPM build products
 .build/
 .swiftpm/
-Package.resolved
+
+# Generated at build time from git (see scripts/gen-version.sh)
+Sources/sod/Version.swift
+
+# Packaging outputs
+dist/
 
 # macOS
 .DS_Store

@@ -5,6 +5,7 @@ extension SSHWire {
     public enum Agent {
         public static let failure: UInt8 = 5
         public static let success: UInt8 = 6
+        public static let removeAllIdentities: UInt8 = 9          // ssh-add -D
         public static let requestIdentities: UInt8 = 11
         public static let identitiesAnswer: UInt8 = 12
         public static let signRequest: UInt8 = 13
@@ -27,6 +28,7 @@ extension SSHWire {
     /// A parsed client request.
     public enum Request: Equatable {
         case requestIdentities
+        case removeAllIdentities                                  // ssh-add -D
         case signRequest(keyBlob: Data, data: Data, flags: UInt32)
         // We repurpose the smartcard messages: `provider` is an SE handle file or a
         // directory of handles, not a PKCS#11 library. `ssh-add -s` / `ssh-add -e`.
@@ -87,6 +89,9 @@ extension SSHWire {
         switch type {
         case Agent.requestIdentities:
             return .requestIdentities
+
+        case Agent.removeAllIdentities:
+            return .removeAllIdentities
 
         case Agent.signRequest:
             var r = ByteReader(payload)

@@ -37,11 +37,14 @@ public protocol KeyBackend {
     func sign(handle: Data, data: Data) throws -> Data
 }
 
-/// On-disk handle file format: `MAGIC(16) || kind(1) || handle`.
+/// On-disk handle file format: `MAGIC || kind(1) || handle`.
 /// The handle is the backend's opaque blob (SE `dataRepresentation`, or — for the
 /// mock — the plain key bytes). Contains no usable secret for the SE backend.
 public enum HandleFile {
-    public static let magic = Array("SE-SSH-HANDLE-v1".utf8)   // 16 bytes
+    /// Current magic, written by `encode`. Handles created before the `sod` rename
+    /// used `SE-SSH-HANDLE-v1`; those are still accepted on read (see `legacyMagics`).
+    public static let magic = Array("SOD-HANDLE-v1".utf8)
+    static let legacyMagics: [[UInt8]] = [Array("SE-SSH-HANDLE-v1".utf8)]
     public static let kindSecureEnclave: UInt8 = 1
     public static let kindMock: UInt8 = 2
 
@@ -49,16 +52,23 @@ public enum HandleFile {
         Data(magic) + Data([kind]) + handle
     }
 
+    /// If `bytes` begins with a known magic AND has at least one more byte (the kind),
+    /// return the magic length; else nil. Keeps `isHandleFile` and `decode` in agreement.
+    private static func magicLength(_ bytes: [UInt8]) -> Int? {
+        for m in [magic] + legacyMagics where bytes.count > m.count && Array(bytes.prefix(m.count)) == m {
+            return m.count
+        }
+        return nil
+    }
+
     public static func isHandleFile(_ data: Data) -> Bool {
-        // require magic + at least the kind byte, so this agrees with decode()
-        let b = [UInt8](data)
-        return b.count > magic.count && Array(b.prefix(magic.count)) == magic
+        magicLength([UInt8](data)) != nil
     }
 
     public static func decode(_ data: Data) -> (kind: UInt8, handle: Data)? {
         let b = [UInt8](data)
-        guard b.count > magic.count, Array(b.prefix(magic.count)) == magic else { return nil }
-        return (b[magic.count], Data(b[(magic.count + 1)...]))
+        guard let mlen = magicLength(b) else { return nil }
+        return (b[mlen], Data(b[(mlen + 1)...]))
     }
 }
 
