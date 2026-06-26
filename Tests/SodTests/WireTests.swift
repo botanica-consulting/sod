@@ -1,4 +1,4 @@
-import CryptoKit   // test-only: produce real ECDSA vectors; SSHWire itself imports none of this
+import CryptoKit  // test-only: produce real ECDSA vectors; SSHWire itself imports none of this
 import Foundation
 import SSHWire
 
@@ -44,8 +44,12 @@ extension Harness {
             ok(r.isAtEnd, "reader at end")
         } catch { fail("byte reader round-trip threw \(error)") }
 
-        throwsErr("reader truncated uint32") { var r = ByteReader(Data([0, 0, 0])); _ = try r.readUInt32() }
-        throwsErr("reader truncated string") { var r = ByteReader(Data([0, 0, 0, 5, 1, 2])); _ = try r.readString() }
+        throwsErr("reader truncated uint32") {
+            var r = ByteReader(Data([0, 0, 0])); _ = try r.readUInt32()
+        }
+        throwsErr("reader truncated string") {
+            var r = ByteReader(Data([0, 0, 0, 5, 1, 2])); _ = try r.readString()
+        }
     }
 
     func runPubKey() throws {
@@ -55,22 +59,24 @@ extension Harness {
         eq(q.count, 65, "pub Q length")
         eq(q.first, 0x04, "pub Q uncompressed marker")
         eqData(SSHWire.ecdsaP256PublicKeyBlob(x963: q), blob, "pub blob rebuild matches ssh-keygen")
-        eq(SSHWire.ecdsaP256PublicKeyLine(x963: q, comment: "vector@m0"),
-           "ecdsa-sha2-nistp256 \(realPubBlobB64) vector@m0", "pub line matches ssh-keygen")
-        eq(SSHWire.ecdsaP256PublicKeyLine(x963: q, comment: ""),
-           "ecdsa-sha2-nistp256 \(realPubBlobB64)", "pub line no comment")
+        eq(
+            SSHWire.ecdsaP256PublicKeyLine(x963: q, comment: "vector@m0"),
+            "ecdsa-sha2-nistp256 \(realPubBlobB64) vector@m0", "pub line matches ssh-keygen")
+        eq(
+            SSHWire.ecdsaP256PublicKeyLine(x963: q, comment: ""),
+            "ecdsa-sha2-nistp256 \(realPubBlobB64)", "pub line no comment")
     }
 
     func leftPad32(_ mpintContent: Data) -> Data {
         var b = [UInt8](mpintContent)
-        while b.count > 32, b.first == 0x00 { b.removeFirst() }   // drop mpint sign pad
-        while b.count < 32 { b.insert(0x00, at: 0) }              // left-pad to fixed width
+        while b.count > 32, b.first == 0x00 { b.removeFirst() }  // drop mpint sign pad
+        while b.count < 32 { b.insert(0x00, at: 0) }  // left-pad to fixed width
         return Data(b)
     }
 
     func runSignature() throws {
-        let key = P256.Signing.PrivateKey()   // plain P-256: same raw r‖s as the SE key, no Touch ID
-        for i in 0 ..< 64 {                    // exercise high-bit / short r,s cases
+        let key = P256.Signing.PrivateKey()  // plain P-256: same raw r‖s as the SE key, no Touch ID
+        for i in 0..<64 {  // exercise high-bit / short r,s cases
             let msg = Data("message number \(i) for ecdsa sig encoding".utf8)
             let sig = try key.signature(for: msg)
             eq(sig.rawRepresentation.count, 64, "raw sig 64B (iter \(i))")
@@ -83,7 +89,9 @@ extension Harness {
             let recon = try P256.Signing.ECDSASignature(rawRepresentation: leftPad32(r) + leftPad32(s))
             ok(key.publicKey.isValidSignature(recon, for: msg), "sig encode round-trips & verifies (iter \(i))")
         }
-        throwsErr("sig rejects wrong length") { _ = try SSHWire.ecdsaP256SignatureBlob(rawRS: Data(repeating: 0, count: 63)) }
+        throwsErr("sig rejects wrong length") {
+            _ = try SSHWire.ecdsaP256SignatureBlob(rawRS: Data(repeating: 0, count: 63))
+        }
     }
 
     func runFraming() throws {
@@ -120,23 +128,29 @@ extension Harness {
         eq(SSHWire.parseRequest(type: 9, payload: Data()), .removeAllIdentities, "parse remove-all (-D)")
 
         let signReq = SSHWire.string(Data([0xaa])) + SSHWire.string(Data([0xbb, 0xcc])) + SSHWire.uint32(0)
-        eq(SSHWire.parseRequest(type: 13, payload: signReq),
-           .signRequest(keyBlob: Data([0xaa]), data: Data([0xbb, 0xcc]), flags: 0), "parse sign-request")
+        eq(
+            SSHWire.parseRequest(type: 13, payload: signReq),
+            .signRequest(keyBlob: Data([0xaa]), data: Data([0xbb, 0xcc]), flags: 0), "parse sign-request")
 
         eq(SSHWire.parseRequest(type: 99, payload: Data()), .unsupported(type: 99), "parse unknown -> unsupported")
-        eq(SSHWire.parseRequest(type: 13, payload: Data([0, 0, 0, 5, 1, 2])),
-           .unsupported(type: 13), "parse malformed sign -> unsupported")
+        eq(
+            SSHWire.parseRequest(type: 13, payload: Data([0, 0, 0, 5, 1, 2])),
+            .unsupported(type: 13), "parse malformed sign -> unsupported")
 
         // smartcard messages (ssh-add -s / -e); provider reinterpreted as an SE handle path,
         // PIN field parsed-and-discarded
         let add = SSHWire.string("/path/to/key") + SSHWire.string("")
-        eq(SSHWire.parseRequest(type: 20, payload: add),
-           .addSmartcardKey(provider: "/path/to/key"), "parse add-smartcard (-s)")
-        let addc = SSHWire.string("/p") + SSHWire.string("pin") + Data([0, 0, 0, 0])  // pin + trailing constraints ignored
-        eq(SSHWire.parseRequest(type: 26, payload: addc),
-           .addSmartcardKey(provider: "/p"), "parse add-smartcard-constrained")
+        eq(
+            SSHWire.parseRequest(type: 20, payload: add),
+            .addSmartcardKey(provider: "/path/to/key"), "parse add-smartcard (-s)")
+        // pin + trailing constraints are parsed and ignored
+        let addc = SSHWire.string("/p") + SSHWire.string("pin") + Data([0, 0, 0, 0])
+        eq(
+            SSHWire.parseRequest(type: 26, payload: addc),
+            .addSmartcardKey(provider: "/p"), "parse add-smartcard-constrained")
         let rem = SSHWire.string("/path/to/key") + SSHWire.string("")
-        eq(SSHWire.parseRequest(type: 21, payload: rem),
-           .removeSmartcardKey(provider: "/path/to/key"), "parse remove-smartcard (-e)")
+        eq(
+            SSHWire.parseRequest(type: 21, payload: rem),
+            .removeSmartcardKey(provider: "/path/to/key"), "parse remove-smartcard (-e)")
     }
 }

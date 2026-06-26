@@ -1,11 +1,16 @@
 import Foundation
+
 #if canImport(Darwin)
 import Darwin
 #endif
 
 enum AgentError: Error, CustomStringConvertible {
     case socket(String)
-    var description: String { switch self { case .socket(let m): return m } }
+    var description: String {
+        switch self {
+        case .socket(let m): return m
+        }
+    }
 }
 
 func errnoString() -> String { String(cString: strerror(errno)) }
@@ -23,15 +28,17 @@ final class UnixSocketServer {
     func bindAndListen() throws {
         let pathBytes = Array(path.utf8)
         guard pathBytes.count < Self.maxPathLength else {
-            throw AgentError.socket("socket path too long: \(pathBytes.count) bytes, max \(Self.maxPathLength - 1): \(path)")
+            throw AgentError.socket(
+                "socket path too long: \(pathBytes.count) bytes, max \(Self.maxPathLength - 1): \(path)")
         }
         // ensure the socket's parent dir exists and is private (mirror OpenSSH ~/.ssh handling)
         let dir = (path as NSString).deletingLastPathComponent
         if !dir.isEmpty {
-            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
-                                                     attributes: [.posixPermissions: 0o700])
+            try? FileManager.default.createDirectory(
+                atPath: dir, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
         }
-        unlink(path)   // clear any stale socket
+        unlink(path)  // clear any stale socket
 
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw AgentError.socket("socket(): \(errnoString())") }

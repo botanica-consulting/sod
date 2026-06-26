@@ -26,7 +26,12 @@ final class Harness {
     }
     func throwsErr(_ label: String, line: UInt = #line, _ body: () throws -> Void) {
         checks += 1
-        do { try body(); fail("\(label): expected throw", line: line) } catch { /* expected */ }
+        do {
+            try body()
+            fail("\(label): expected throw", line: line)
+        } catch {
+            // expected: throwing is the success case here
+        }
     }
 
     /// Assert a fully-framed agent message has the expected type byte.

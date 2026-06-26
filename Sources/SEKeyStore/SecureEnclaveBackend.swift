@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 import LocalAuthentication
 import Security
 
@@ -15,13 +15,16 @@ public struct SecureEnclaveBackend: KeyBackend {
         var err: Unmanaged<CFError>?
         // .privateKeyUsage is required alongside the presence flag or signing fails.
         // .userPresence = Touch ID with passcode fallback, durable across re-enrollment.
-        guard let ac = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.privateKeyUsage, .userPresence],
-            &err
-        ) else {
-            throw KeyBackendError.create("SecAccessControlCreateWithFlags: \(String(describing: err?.takeRetainedValue()))")
+        guard
+            let ac = SecAccessControlCreateWithFlags(
+                nil,
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                [.privateKeyUsage, .userPresence],
+                &err
+            )
+        else {
+            throw KeyBackendError.create(
+                "SecAccessControlCreateWithFlags: \(String(describing: err?.takeRetainedValue()))")
         }
         return ac
     }
@@ -52,7 +55,7 @@ public struct SecureEnclaveBackend: KeyBackend {
     public func sign(handle: Data, data: Data) throws -> Data {
         do {
             let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: handle)
-            return try key.signature(for: data).rawRepresentation   // Touch ID fires here
+            return try key.signature(for: data).rawRepresentation  // Touch ID fires here
         } catch {
             throw KeyBackendError.sign("\(error)")
         }

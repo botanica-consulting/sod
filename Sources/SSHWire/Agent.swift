@@ -5,13 +5,13 @@ extension SSHWire {
     public enum Agent {
         public static let failure: UInt8 = 5
         public static let success: UInt8 = 6
-        public static let removeAllIdentities: UInt8 = 9          // ssh-add -D
+        public static let removeAllIdentities: UInt8 = 9  // ssh-add -D
         public static let requestIdentities: UInt8 = 11
         public static let identitiesAnswer: UInt8 = 12
         public static let signRequest: UInt8 = 13
         public static let signResponse: UInt8 = 14
-        public static let addSmartcardKey: UInt8 = 20             // ssh-add -s
-        public static let removeSmartcardKey: UInt8 = 21          // ssh-add -e
+        public static let addSmartcardKey: UInt8 = 20  // ssh-add -s
+        public static let removeSmartcardKey: UInt8 = 21  // ssh-add -e
         public static let addSmartcardKeyConstrained: UInt8 = 26  // ssh-add -s with constraints
     }
 
@@ -28,7 +28,7 @@ extension SSHWire {
     /// A parsed client request.
     public enum Request: Equatable {
         case requestIdentities
-        case removeAllIdentities                                  // ssh-add -D
+        case removeAllIdentities  // ssh-add -D
         case signRequest(keyBlob: Data, data: Data, flags: UInt32)
         // We repurpose the smartcard messages: `provider` is an SE handle file or a
         // directory of handles, not a PKCS#11 library. `ssh-add -s` / `ssh-add -e`.
@@ -96,8 +96,9 @@ extension SSHWire {
         case Agent.signRequest:
             var r = ByteReader(payload)
             guard let keyBlob = try? r.readString(),
-                  let data = try? r.readString(),
-                  let flags = try? r.readUInt32() else {
+                let data = try? r.readString(),
+                let flags = try? r.readUInt32()
+            else {
                 return .unsupported(type: type)
             }
             return .signRequest(keyBlob: keyBlob, data: data, flags: flags)

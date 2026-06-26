@@ -20,13 +20,15 @@ public struct MockP256Backend: KeyBackend {
     }
 
     public func publicKey(forHandle handle: Data) throws -> Data {
-        do { return try P256.Signing.PrivateKey(rawRepresentation: handle).publicKey.x963Representation }
-        catch { throw KeyBackendError.load("\(error)") }
+        do { return try P256.Signing.PrivateKey(rawRepresentation: handle).publicKey.x963Representation } catch {
+            throw KeyBackendError.load("\(error)")
+        }
     }
 
     public func sign(handle: Data, data: Data) throws -> Data {
-        do { return try P256.Signing.PrivateKey(rawRepresentation: handle).signature(for: data).rawRepresentation }
-        catch { throw KeyBackendError.sign("\(error)") }
+        do {
+            return try P256.Signing.PrivateKey(rawRepresentation: handle).signature(for: data).rawRepresentation
+        } catch { throw KeyBackendError.sign("\(error)") }
     }
 }
 #endif

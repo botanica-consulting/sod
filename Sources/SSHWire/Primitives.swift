@@ -39,8 +39,8 @@ public enum SSHWire {
     public static func mpint(_ raw: Data) -> Data {
         var bytes = [UInt8](raw)
         while let first = bytes.first, first == 0x00 { bytes.removeFirst() }
-        if bytes.isEmpty { return string(Data()) }              // zero -> empty string
-        if bytes[0] & 0x80 != 0 { bytes.insert(0x00, at: 0) }    // would look negative -> pad
+        if bytes.isEmpty { return string(Data()) }  // zero -> empty string
+        if bytes[0] & 0x80 != 0 { bytes.insert(0x00, at: 0) }  // would look negative -> pad
         return string(Data(bytes))
     }
 }
@@ -58,17 +58,18 @@ public struct ByteReader {
 
     public mutating func readUInt32() throws -> UInt32 {
         guard remaining >= 4 else { throw WireError.truncated }
-        let v = (UInt32(bytes[pos]) << 24)
-              | (UInt32(bytes[pos + 1]) << 16)
-              | (UInt32(bytes[pos + 2]) << 8)
-              |  UInt32(bytes[pos + 3])
+        let v =
+            (UInt32(bytes[pos]) << 24)
+            | (UInt32(bytes[pos + 1]) << 16)
+            | (UInt32(bytes[pos + 2]) << 8)
+            | UInt32(bytes[pos + 3])
         pos += 4
         return v
     }
 
     public mutating func readBytes(_ n: Int) throws -> Data {
         guard n >= 0, remaining >= n else { throw WireError.truncated }
-        let slice = bytes[pos ..< pos + n]
+        let slice = bytes[pos..<pos + n]
         pos += n
         return Data(slice)
     }

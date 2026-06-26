@@ -21,23 +21,29 @@ func runAgentSuite(_ h: Harness) {
 
     // Empty agent: identities answer with zero keys.
     do {
-        let (t, p) = try SSHWire.splitFramed(handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
+        let (t, p) = try SSHWire.splitFramed(
+            handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
         h.eq(t, SSHWire.Agent.identitiesAnswer, "identities answer type (empty)")
         var r = ByteReader(p)
         h.eq(try r.readUInt32(), 0, "no identities before load")
     } catch { h.fail("empty-identities threw \(error)") }
 
     // add-smartcard: success on a real handle, failure on a bogus path.
-    h.eqFramed(handleRequest(type: SSHWire.Agent.addSmartcardKey,
-                             payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
-               type: SSHWire.Agent.success, "add-smartcard loads a handle")
-    h.eqFramed(handleRequest(type: SSHWire.Agent.addSmartcardKey,
-                             payload: SSHWire.string(dir + "/nope") + SSHWire.string(""), state: state),
-               type: SSHWire.Agent.failure, "add-smartcard rejects non-handle")
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.addSmartcardKey,
+            payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
+        type: SSHWire.Agent.success, "add-smartcard loads a handle")
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.addSmartcardKey,
+            payload: SSHWire.string(dir + "/nope") + SSHWire.string(""), state: state),
+        type: SSHWire.Agent.failure, "add-smartcard rejects non-handle")
 
     // request-identities: our one key, blob + comment match.
     do {
-        let (t, p) = try SSHWire.splitFramed(handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
+        let (t, p) = try SSHWire.splitFramed(
+            handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
         h.eq(t, SSHWire.Agent.identitiesAnswer, "identities answer type")
         var r = ByteReader(p)
         h.eq(try r.readUInt32(), 1, "identities count == 1")
@@ -49,7 +55,8 @@ func runAgentSuite(_ h: Harness) {
     let msg = Data("ssh signing payload".utf8)
     let signReq = SSHWire.string(expectedBlob) + SSHWire.string(msg) + SSHWire.uint32(0)
     do {
-        let (st, sp) = try SSHWire.splitFramed(handleRequest(type: SSHWire.Agent.signRequest, payload: signReq, state: state))
+        let (st, sp) = try SSHWire.splitFramed(
+            handleRequest(type: SSHWire.Agent.signRequest, payload: signReq, state: state))
         h.eq(st, SSHWire.Agent.signResponse, "sign response type")
         var rr = ByteReader(sp)
         let (rRaw, sRaw) = try SSHWire.parseEcdsaP256SignatureBlob(try rr.readString())
@@ -60,23 +67,30 @@ func runAgentSuite(_ h: Harness) {
 
     // sign with an unknown key blob -> FAILURE.
     let bad = SSHWire.string(Data([0, 1, 2])) + SSHWire.string(msg) + SSHWire.uint32(0)
-    h.eqFramed(handleRequest(type: SSHWire.Agent.signRequest, payload: bad, state: state),
-               type: SSHWire.Agent.failure, "sign unknown key -> failure")
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: bad, state: state),
+        type: SSHWire.Agent.failure, "sign unknown key -> failure")
 
     // remove-smartcard: success, then already-removed -> failure.
-    h.eqFramed(handleRequest(type: SSHWire.Agent.removeSmartcardKey,
-                             payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
-               type: SSHWire.Agent.success, "remove-smartcard unloads")
-    h.eqFramed(handleRequest(type: SSHWire.Agent.removeSmartcardKey,
-                             payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
-               type: SSHWire.Agent.failure, "remove of unloaded -> failure")
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.removeSmartcardKey,
+            payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
+        type: SSHWire.Agent.success, "remove-smartcard unloads")
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.removeSmartcardKey,
+            payload: SSHWire.string(keyPath) + SSHWire.string(""), state: state),
+        type: SSHWire.Agent.failure, "remove of unloaded -> failure")
 
     // remove-all (-D): load again, clear, confirm zero identities.
     state.add(keyPath)
-    h.eqFramed(handleRequest(type: SSHWire.Agent.removeAllIdentities, payload: Data(), state: state),
-               type: SSHWire.Agent.success, "remove-all succeeds")
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.removeAllIdentities, payload: Data(), state: state),
+        type: SSHWire.Agent.success, "remove-all succeeds")
     do {
-        let (_, p) = try SSHWire.splitFramed(handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
+        let (_, p) = try SSHWire.splitFramed(
+            handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: state))
         var r = ByteReader(p)
         h.eq(try r.readUInt32(), 0, "no identities after remove-all")
     } catch { h.fail("identities-after-removeall threw \(error)") }

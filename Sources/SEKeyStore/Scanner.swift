@@ -25,8 +25,9 @@ public enum HandleScanner {
             if name.hasSuffix(".pub") { continue }
             let path = directory + "/" + name
             guard let data = fm.contents(atPath: path),
-                  let decoded = HandleFile.decode(data),
-                  decoded.kind == kind else { continue }
+                let decoded = HandleFile.decode(data),
+                decoded.kind == kind
+            else { continue }
             let comment = pubComment(path + ".pub") ?? name
             result.append(DiscoveredHandle(path: path, handle: decoded.handle, comment: comment))
         }
@@ -41,15 +42,17 @@ public enum HandleScanner {
         guard fm.fileExists(atPath: provider, isDirectory: &isDir) else { return [] }
         if isDir.boolValue { return scan(directory: provider, kind: kind) }
         guard let data = fm.contents(atPath: provider),
-              let decoded = HandleFile.decode(data),
-              decoded.kind == kind else { return [] }
+            let decoded = HandleFile.decode(data),
+            decoded.kind == kind
+        else { return [] }
         let comment = pubComment(provider + ".pub") ?? (provider as NSString).lastPathComponent
         return [DiscoveredHandle(path: provider, handle: decoded.handle, comment: comment)]
     }
 
     private static func pubComment(_ pubPath: String) -> String? {
         guard let data = FileManager.default.contents(atPath: pubPath),
-              let firstLine = String(data: data, encoding: .utf8)?.split(separator: "\n").first else {
+            let firstLine = String(data: data, encoding: .utf8)?.split(separator: "\n").first
+        else {
             return nil
         }
         let fields = firstLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)

@@ -1,13 +1,14 @@
 import ArgumentParser
 import Foundation
-import SSHWire
 import SEKeyStore
+import SSHWire
+
 #if canImport(Darwin)
 import Darwin
 #endif
 
 private let tool = "sod ssh-agent"
-private let maxMessage = SSHWire.maxAgentMessage   // bound allocations against a hostile length prefix
+private let maxMessage = SSHWire.maxAgentMessage  // bound allocations against a hostile length prefix
 
 private func elog(_ msg: String) { FileHandle.standardError.write(Data("\(tool): \(msg)\n".utf8)) }
 private func errExit(_ msg: String) -> Never { elog(msg); exit(1) }
@@ -17,7 +18,7 @@ nonisolated(unsafe) private var gSockPathC: UnsafeMutablePointer<CChar>?
 nonisolated(unsafe) private var gPidPathC: UnsafeMutablePointer<CChar>?
 
 private func installSignalHandlers(socketPath: String, pidPath: String) {
-    signal(SIGPIPE, SIG_IGN)   // don't die when a client disconnects mid-write
+    signal(SIGPIPE, SIG_IGN)  // don't die when a client disconnects mid-write
     gSockPathC = strdup(socketPath)
     gPidPathC = strdup(pidPath)
     let cleanup: @convention(c) (Int32) -> Void = { _ in
@@ -42,7 +43,8 @@ public final class AgentState {
     public init(backend: KeyBackend) { self.backend = backend }
 
     private func absolute(_ path: String) -> String {
-        (path as NSString).isAbsolutePath ? path
+        (path as NSString).isAbsolutePath
+            ? path
             : FileManager.default.currentDirectoryPath + "/" + path
     }
 
@@ -84,12 +86,13 @@ public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data
         }
         return SSHWire.identitiesAnswer(ids)
 
-    case .signRequest(let keyBlob, let data, _):   // flags ignored (RSA-only)
+    case .signRequest(let keyBlob, let data, _):  // flags ignored (RSA-only)
         for h in state.handles() {
             guard let x963 = try? state.backend.publicKey(forHandle: h.handle),
-                  SSHWire.ecdsaP256PublicKeyBlob(x963: x963) == keyBlob else { continue }
+                SSHWire.ecdsaP256PublicKeyBlob(x963: x963) == keyBlob
+            else { continue }
             do {
-                let raw = try state.backend.sign(handle: h.handle, data: data)   // Touch ID (real backend)
+                let raw = try state.backend.sign(handle: h.handle, data: data)  // Touch ID (real backend)
                 return SSHWire.signResponse(signatureBlob: try SSHWire.ecdsaP256SignatureBlob(rawRS: raw))
             } catch {
                 elog("sign failed: \(error)")
@@ -99,15 +102,15 @@ public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data
         elog("sign: no loaded key matches the requested public key")
         return SSHWire.failure()
 
-    case .addSmartcardKey(let provider):           // ssh-add -s <provider>
+    case .addSmartcardKey(let provider):  // ssh-add -s <provider>
         if state.add(provider) { elog("loaded \(provider)"); return SSHWire.success() }
         elog("no sod handle at \(provider)"); return SSHWire.failure()
 
-    case .removeSmartcardKey(let provider):        // ssh-add -e <provider>
+    case .removeSmartcardKey(let provider):  // ssh-add -e <provider>
         if state.remove(provider) { elog("unloaded \(provider)"); return SSHWire.success() }
         return SSHWire.failure()
 
-    case .removeAllIdentities:                      // ssh-add -D
+    case .removeAllIdentities:  // ssh-add -D
         state.removeAll(); elog("unloaded all keys"); return SSHWire.success()
 
     case .unsupported:
@@ -171,22 +174,23 @@ private func daemonize(logDir: String) {
     let devnull = open("/dev/null", O_RDWR)
     if devnull >= 0 { dup2(devnull, 0) }
     let logfd = open(logDir + "/sod-agent.log", O_WRONLY | O_CREAT | O_APPEND, 0o600)
-    if logfd >= 0 { dup2(logfd, 1); dup2(logfd, 2) }
-    else if devnull >= 0 { dup2(devnull, 1); dup2(devnull, 2) }
+    if logfd >= 0 { dup2(logfd, 1); dup2(logfd, 2) } else if devnull >= 0 { dup2(devnull, 1); dup2(devnull, 2) }
     if devnull > 2 { close(devnull) }
     if logfd > 2 { close(logfd) }
 }
 
 private func writePidFile(_ path: String) {
-    FileManager.default.createFile(atPath: path, contents: Data(String(getpid()).utf8),
-                                   attributes: [.posixPermissions: NSNumber(value: 0o600)])
+    FileManager.default.createFile(
+        atPath: path, contents: Data(String(getpid()).utf8),
+        attributes: [.posixPermissions: NSNumber(value: 0o600)])
 }
 
 private func killAgent(socketPath: String) -> Never {
     let pidPath = socketPath + ".pid"
     guard let data = FileManager.default.contents(atPath: pidPath),
-          let text = String(data: data, encoding: .utf8),
-          let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        let text = String(data: data, encoding: .utf8),
+        let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    else {
         errExit("no agent pidfile at \(pidPath) — is an agent running on \(socketPath)?")
     }
     if kill(pid, SIGTERM) == 0 {
@@ -213,7 +217,9 @@ private func runListen(socketPath: String, providers: [String], detach: Bool) ->
     writePidFile(pidPath)
     installSignalHandlers(socketPath: socketPath, pidPath: pidPath)
 
-    elog("listening on \(socketPath)  backend: \(backend.isMock ? "MOCK (no Touch ID)" : "Secure Enclave (Touch ID on sign)")")
+    elog(
+        "listening on \(socketPath)  backend: \(backend.isMock ? "MOCK (no Touch ID)" : "Secure Enclave (Touch ID on sign)")"
+    )
     elog("load a key:  sod ssh-add <keyfile>")
     server.acceptLoop { serve($0, state: state) }
     exit(0)
@@ -224,7 +230,7 @@ private func ensureAndEmit(socketPath: String, providers: [String], dialect: Str
     if !isSocketLive(socketPath) {
         spawnDaemon(socketPath: socketPath, providers: providers)
         var tries = 0
-        while !isSocketLive(socketPath), tries < 300 { usleep(10_000); tries += 1 }   // up to ~3s
+        while !isSocketLive(socketPath), tries < 300 { usleep(10_000); tries += 1 }  // up to ~3s
         guard isSocketLive(socketPath) else { errExit("agent did not come up at \(socketPath)") }
         elog("started agent on \(socketPath)")
     } else {
@@ -244,18 +250,20 @@ public struct Agent: ParsableCommand {
         commandName: "ssh-agent",
         abstract: "Run the Secure-Enclave ssh-agent and print the environment to use it.",
         discussion: """
-        With no options, ensures an agent is running on the socket (reusing one if
-        present) and prints shell commands that set SSH_AUTH_SOCK:
+            With no options, ensures an agent is running on the socket (reusing one if
+            present) and prints shell commands that set SSH_AUTH_SOCK:
 
-            eval "$(sod ssh-agent)"
+                eval "$(sod ssh-agent)"
 
-        Then load a key with `sod ssh-add` and use `ssh` as usual; Touch ID is
-        requested on each signature. Handle files or directories given as arguments
-        are preloaded when the agent starts.
-        """
+            Then load a key with `sod ssh-add` and use `ssh` as usual; Touch ID is
+            requested on each signature. Handle files or directories given as arguments
+            are preloaded when the agent starts.
+            """
     )
 
-    @Option(name: .customShort("a"), help: ArgumentHelp("Agent socket path (default ~/.ssh/sod-agent.sock).", valueName: "socket"))
+    @Option(
+        name: .customShort("a"),
+        help: ArgumentHelp("Agent socket path (default ~/.ssh/sod-agent.sock).", valueName: "socket"))
     var socket: String?
 
     @Flag(name: .customShort("s"), help: "Force Bourne-shell (sh) output for the env.")
@@ -273,7 +281,7 @@ public struct Agent: ParsableCommand {
     @Flag(name: .customShort("E"), help: "Ensure an agent is running and print its env (the default).")
     var ensure = false
 
-    @Flag(name: .long, help: ArgumentHelp(visibility: .private))   // internal: invoked by the lazy-spawn path
+    @Flag(name: .long, help: ArgumentHelp(visibility: .private))  // internal: invoked by the lazy-spawn path
     var daemon = false
 
     @Argument(help: "Handle files or directories to preload.")
@@ -285,11 +293,11 @@ public struct Agent: ParsableCommand {
         let sock = expandTilde(socket ?? "~/.ssh/sod-agent.sock")
         let provs = providers.map { expandTilde($0) }
 
-        if kill { killAgent(socketPath: sock) }                                  // Never
+        if kill { killAgent(socketPath: sock) }  // Never
         if daemon { runListen(socketPath: sock, providers: provs, detach: true) }  // Never
         if foreground { runListen(socketPath: sock, providers: provs, detach: false) }  // Never
 
         let dialect = csh ? "csh" : (sh ? "sh" : detectDialect())
-        ensureAndEmit(socketPath: sock, providers: provs, dialect: dialect)      // Never
+        ensureAndEmit(socketPath: sock, providers: provs, dialect: dialect)  // Never
     }
 }

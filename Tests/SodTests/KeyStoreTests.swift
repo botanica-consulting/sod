@@ -7,7 +7,7 @@ import SSHWire
 func runKeyStoreSuite(_ h: Harness) {
     // HandleFile encode/decode round-trip for both kinds.
     for kind in [HandleFile.kindSecureEnclave, HandleFile.kindMock] {
-        let handle = Data((0 ..< 40).map { UInt8($0 & 0xff) })
+        let handle = Data((0..<40).map { UInt8($0 & 0xff) })
         let file = HandleFile.encode(kind: kind, handle: handle)
         h.ok(HandleFile.isHandleFile(file), "isHandleFile accepts encoded (kind \(kind))")
         if let dec = HandleFile.decode(file) {
@@ -47,7 +47,8 @@ func runKeyStoreSuite(_ h: Harness) {
     h.eq(byFile.first?.comment ?? "", "alice@host", "comment from .pub 3rd field")
     h.eq(HandleScanner.resolve(provider: dir, kind: mock.kind).count, 1, "resolve dir -> 1 handle")
     // Kind mismatch -> nothing (an SE agent must not serve mock handles, and vice-versa).
-    h.eq(HandleScanner.resolve(provider: keyPath, kind: HandleFile.kindSecureEnclave).count, 0,
-         "resolve filters by kind")
+    h.eq(
+        HandleScanner.resolve(provider: keyPath, kind: HandleFile.kindSecureEnclave).count, 0,
+        "resolve filters by kind")
 }
 #endif
