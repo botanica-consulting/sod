@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build · test · lint · coverage
+    runs-on: macos-14            # Apple Silicon; full Xcode (swift-format, llvm-cov)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # tags, so gen-version.sh can `git describe`
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          xcrun --find llvm-cov
+          swift format --version
+
+      - name: Generate version
+        run: bash scripts/gen-version.sh
+
+      - name: Lint (swift-format, strict)
+        run: swift format lint --strict --recursive Sources Tests
+
+      - name: Build (debug)
+        run: swift build -c debug
+
+      - name: Build (release)
+        run: swift build -c release
+
+      # We don't run this slice (the runner is arm64); compiling it guards against
+      # arch-specific breakage before we lipo a universal binary at release.
+      - name: Cross-compile (x86_64 slice)
+        run: swift build -c release --arch x86_64
+
+      # Built WITH the mock so the KeyStore/Agent suites run (they're #if-gated).
+      - name: Unit tests (wire + keystore + agent, mock backend)
+        run: SE_SSH_MOCK=1 swift run sod-tests
+
+      # selftest.sh under SE_SSH_MOCK needs no Secure Enclave / Touch ID.
+      - name: Mock end-to-end (generate → agent → ssh-add → ssh)
+        run: SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/sod-ci-key
+
+      - name: Coverage (llvm-cov)
+        continue-on-error: true   # informational; tests already gate above
+        run: bash scripts/coverage.sh
+
+      - name: Upload coverage (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: .build/coverage/sod.lcov
+          if-no-files-found: ignore
+
+      # NOTE: real Secure-Enclave end-to-end (real Touch ID, real `sod ssh-keygen`
+      # → `sod ssh-agent` → `ssh`) CANNOT run on hosted runners — there is no
+      # Secure Enclave and no Touch ID. Run it on a developer Mac before tagging:
+      #   swift build -c release && bash scripts/selftest.sh ~/keys/se/id

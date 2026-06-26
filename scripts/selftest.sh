@@ -11,12 +11,13 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-BIN=""
-for d in "$REPO/.build/release" "$REPO/.build/debug"; do
-  [ -x "$d/sod" ] && { BIN="$d"; break; }
-done
-[ -n "$BIN" ] || { echo "build first:  swift build -c release  (or SE_SSH_MOCK=1 swift build)"; exit 1; }
-SOD="$BIN/sod"
+# Build sod, honoring SE_SSH_MOCK from the environment, so a mock run uses a mock
+# binary and a real run uses the Secure-Enclave binary (avoids picking up a stale
+# build of the other flavor). Incremental: near-instant if already built.
+( cd "$REPO" && bash scripts/gen-version.sh >/dev/null && swift build -c release >/dev/null ) \
+  || { echo "build failed (try: swift build -c release)"; exit 1; }
+SOD="$REPO/.build/release/sod"
+[ -x "$SOD" ] || { echo "no sod binary at $SOD"; exit 1; }
 
 KEY="${1:-$HOME/.ssh/id_sod}"
 [ -f "$KEY" ] || { echo "creating SE key: $KEY"; "$SOD" ssh-keygen -f "$KEY"; }
@@ -49,7 +50,9 @@ PubkeyAuthentication yes
 AuthenticationMethods publickey
 EOF
 
-SSHD="$(command -v sshd || echo /opt/homebrew/sbin/sshd)"
+SSHD="$(command -v sshd || true)"
+[ -x "$SSHD" ] || SSHD=/usr/sbin/sshd
+[ -x "$SSHD" ] || SSHD=/opt/homebrew/sbin/sshd
 "$SSHD" -D -e -p "$PORT" -f "$T/sshd_config" >"$T/sshd.log" 2>&1 &
 SSHD_PID=$!
 for _ in $(seq 1 50); do
