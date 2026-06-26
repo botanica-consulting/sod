@@ -3,19 +3,30 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch: {}        # manual run (no tag) to test signing — uploads an artifact
 
 permissions:
-  contents: write          # create the GitHub Release + upload assets
+  contents: write              # create the GitHub Release + upload assets
+
+# Repository secrets required for SIGNED + NOTARIZED builds (set all of them together;
+# with none set, the workflow still produces an UNSIGNED .pkg so it never blocks):
+#   MACOS_CERT_P12_BASE64    base64 of a .p12 holding BOTH "Developer ID Application"
+#                            and "Developer ID Installer" (certs + private keys).
+#                            Export both from Keychain Access into one .p12, then:
+#                              base64 -i certs.p12 | pbcopy
+#   MACOS_CERT_PASSWORD      the .p12 export password
+#   DEVELOPER_ID_APP         "Developer ID Application: <Name> (TEAMID)"
+#   DEVELOPER_ID_INSTALLER   "Developer ID Installer: <Name> (TEAMID)"
+#   NOTARY_KEY_P8_BASE64     base64 of the App Store Connect API key AuthKey_XXXX.p8
+#   NOTARY_KEY_ID            the API Key ID
+#   NOTARY_ISSUER_ID         the API Issuer ID (UUID)
 
 jobs:
   release:
-    runs-on: macos-15            # Sequoia: default Xcode 16 = Swift 6
-    # Signing/notarization are opt-in: absent secrets resolve to empty strings, so
-    # the scripts no-op and the release ships unsigned (ad-hoc) until secrets exist.
+    runs-on: macos-15          # Sequoia: default Xcode 16 = Swift 6
     env:
       DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
       DEVELOPER_ID_INSTALLER: ${{ secrets.DEVELOPER_ID_INSTALLER }}
-      NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,16 +37,51 @@ jobs:
           XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
 
+      # --- Signing setup (skipped automatically when secrets are absent) ----------
+      - name: Import signing certificates
+        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+        env:
+          P12_B64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          P12_PW: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/sod-signing.keychain-db"
+          KPW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-build
+          security unlock-keychain -p "$KPW" "$KEYCHAIN"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/certs.p12"
+          security import "$RUNNER_TEMP/certs.p12" -P "$P12_PW" -f pkcs12 \
+            -k "$KEYCHAIN" -T /usr/bin/codesign -T /usr/bin/productbuild
+          rm -f "$RUNNER_TEMP/certs.p12"
+          # Add our keychain to the search list and allow non-interactive signing.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
+          echo "imported codesigning identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Set up notarization credentials
+        if: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+        env:
+          P8_B64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ISSUER: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "$P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool store-credentials "sod-notary" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$KEY_ID" --issuer "$ISSUER"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+          echo "NOTARY_PROFILE=sod-notary" >> "$GITHUB_ENV"   # picked up by scripts/notarize.sh
+
+      # --- Build → sign → pkg → notarize (each script no-ops if its vars are unset) -
       - name: Build universal sod
         run: bash scripts/build-universal.sh
-
-      - name: Sign (opt-in)
+      - name: Sign binary
         run: bash scripts/sign.sh
-
-      - name: Build .pkg (installer signing opt-in)
+      - name: Build .pkg
         run: bash scripts/make-pkg.sh
-
-      - name: Notarize + staple (opt-in)
+      - name: Notarize + staple
         run: bash scripts/notarize.sh
 
       - name: Tarball + checksums
@@ -44,10 +90,26 @@ jobs:
           tar -czf "sod-${GITHUB_REF_NAME}-universal.tar.gz" sod
           shasum -a 256 sod-*.tar.gz sod-*.pkg > SHA256SUMS.txt
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (tag pushes)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/sod-*.pkg
             dist/sod-*-universal.tar.gz
             dist/SHA256SUMS.txt
+
+      - name: Upload artifact (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sod-pkg
+          path: |
+            dist/sod-*.pkg
+            dist/sod-*-universal.tar.gz
+            dist/SHA256SUMS.txt
+          if-no-files-found: ignore
+
+      - name: Clean up signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/sod-signing.keychain-db" 2>/dev/null || true
