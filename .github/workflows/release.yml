@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-15            # Sequoia: default Xcode 16 = Swift 6
     # Signing/notarization are opt-in: absent secrets resolve to empty strings, so
     # the scripts no-op and the release ships unsigned (ad-hoc) until secrets exist.
     env:
@@ -20,6 +20,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Select Xcode 16 (Swift 6)
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
 
       - name: Build universal sod
         run: bash scripts/build-universal.sh

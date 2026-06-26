@@ -15,11 +15,16 @@ permissions:
 jobs:
   build-test:
     name: build · test · lint · coverage
-    runs-on: macos-14            # Apple Silicon; full Xcode (swift-format, llvm-cov)
+    runs-on: macos-15            # Sequoia: default Xcode 16 = Swift 6 (swift format, llvm-cov)
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # tags, so gen-version.sh can `git describe`
+
+      - name: Select Xcode 16 (Swift 6 — needed for swift-tools 6 and `swift format`)
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
 
       - name: Toolchain versions
         run: |
