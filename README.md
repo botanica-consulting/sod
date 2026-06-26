@@ -1,111 +1,197 @@
-# se-ssh — Secure-Enclave-backed SSH agent + keygen
+<div align="center">
 
-A minimal, no-GUI macOS tool that keeps an SSH authentication key **in the Secure
-Enclave** (the private key never leaves the SE) and serves it to stock OpenSSH over
-the ssh-agent protocol. Touch ID gates every signature. The key is served as a
-plain `ecdsa-sha2-nistp256` — any server accepts it; no FIDO/`sk-` support needed.
+<!-- Branding: drop the banner at docs/assets/sod-banner.png and replace this block with
+     <picture><source ... media="(prefers-color-scheme: dark)"><img src="docs/assets/sod-banner.png" ...></picture> -->
 
-Executables:
-- **`se-ssh-keygen`** — creates a P-256 key in the Secure Enclave; writes an opaque
-  handle file + a standard `.pub`.
-- **`se-ssh-agent`** — an ssh-agent on a unix socket. It holds no keys until you load
-  one with **`se-ssh-add`** / `ssh-add -s` (or preload by passing handle paths as
-  args). Lists keys without a prompt; signs behind Touch ID.
-- **`se-ssh-add`** *(disposable convenience)* — loads/removes/lists keys like
-  `ssh-add`, but without `ssh-add -s`'s pointless PKCS#11 PIN prompt. Safe to delete
-  if that prompt ever goes away; nothing depends on it.
+# sod
 
-Status: **working (M0–M4, plus `ssh-add -s` key-loading and the `-E`/lazy-daemon —
-the M5 ergonomics).** Auto-start at login (a proper LaunchAgent) and CI/packaging
-(M6) are not built yet.
+**Your SSH key, sealed in the Secure Enclave. Touch ID to sign.**
+
+[![CI](https://github.com/botanica/sod/actions/workflows/ci.yml/badge.svg)](https://github.com/botanica/sod/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#requirements)
+[![Swift 6](https://img.shields.io/badge/Swift-6-orange?logo=swift)](Package.swift)
+
+</div>
+
+`sod` keeps an SSH authentication key **inside the Secure Enclave** — the private key
+is generated there and never leaves it — and serves it to stock OpenSSH over the
+ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
+`ecdsa-sha2-nistp256`, so any server, GitHub included, accepts it; no FIDO/`sk-`
+support required on the other end.
+
+One binary, three subcommands that mirror the OpenSSH tools they imitate:
+
+| Command | Like | Does |
+|---|---|---|
+| `sod ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
+| `sod ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
+| `sod ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
+
+## Why sod
+
+- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
+  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
+- **Presence on every signature.** Access policy is `.userPresence` — Touch ID with
+  passcode fallback, durable across fingerprint re-enrollment. N connections = N taps.
+- **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
+  extensions, no daemons running as root.
+- **Coexists.** Never touches your default `SSH_AUTH_SOCK` unless you ask, so it lives
+  happily alongside 1Password / Secretive.
+- **Lean.** A single notarizable binary; one dependency (Apple's swift-argument-parser).
 
 ## Requirements
-- Apple Silicon Mac with Touch ID, macOS 13+.
-- Swift toolchain (Command Line Tools is enough — no Xcode.app required).
-- OpenSSH (`ssh`, `ssh-add`); macOS ships it, or use Homebrew's.
 
-## Build
+- A Mac with a Secure Enclave (Apple Silicon, or Intel with a T2 chip) and Touch ID, macOS 13+.
+- OpenSSH (`ssh`, `ssh-add`) — macOS ships it.
+- To build from source: a Swift 6 toolchain (Command Line Tools is enough — no Xcode app required).
+
+## Install
+
+### Homebrew
+
 ```sh
-swift build -c release
-# binaries: .build/release/se-ssh-keygen, .build/release/se-ssh-agent
+brew install botanica/tap/sod
 ```
-Binaries are ad-hoc signed (no Apple Developer account needed) and, being built
-locally, are not quarantined. Run them by full path, or copy them somewhere on your
-`PATH` yourself.
 
-## Use
+### Notarized installer
 
-1. **Generate a key** (no Touch ID at creation) — put it wherever you like:
-   ```sh
-   se-ssh-keygen -f ~/keys/se/id -C "me@laptop"   # -> ~/keys/se/id (+ id.pub)
-   # bare `se-ssh-keygen` defaults to ~/.ssh/id_ecdsa_se
-   ```
-2. **Authorize it on the server** — append `~/keys/se/id.pub` to the remote
-   `~/.ssh/authorized_keys` (e.g. `ssh-copy-id -i ~/keys/se/id.pub user@host`).
-3. **Start the agent into your shell** (empty; starts a background one if needed):
-   ```sh
-   eval "$(se-ssh-agent -E)"
-   ```
-4. **Load the key into the agent** with `se-ssh-add` (no prompt):
-   ```sh
-   se-ssh-add ~/keys/se/id        # -d <key> to unload, -l / -L to list
-   ```
-   `se-ssh-add` is a small disposable wrapper that avoids `ssh-add -s`'s pointless
-   PKCS#11 PIN prompt (see `Sources/se-ssh-add/main.swift`). Stock tooling works too:
-   `ssh-add -s ~/keys/se/id` (press Enter at the PIN prompt — the SE ignores it),
-   `ssh-add -e` to unload, `ssh-add -l`/`-L` to list.
-5. **Connect as usual** — Touch ID prompts once per connection:
-   ```sh
-   ssh -i ~/keys/se/id user@host
-   ```
-   You can point `-i` at the handle or the `.pub`, or omit `-i` — the agent offers
-   the loaded key either way. (Presence on every connect is the point — N
-   connections = N taps.)
+Download `sod-<version>.pkg` from [Releases](https://github.com/botanica/sod/releases)
+and open it. It installs `sod` to `/usr/local/bin` and its man page — nothing else.
 
-Notes:
-- **Preload instead of `ssh-add -s`** by naming handles/dirs at startup:
-  `se-ssh-agent ~/keys/se/id` (or `eval "$(se-ssh-agent -E ~/keys/se/id)"`).
-- The agent is a plain process (not yet a login LaunchAgent), so after a reboot run
-  `eval "$(se-ssh-agent -E)"` again. Default socket: `~/.ssh/se-agent.sock` (`-a` to
-  change). Stop it with `pkill -f se-ssh-agent`.
-- It never touches your default `SSH_AUTH_SOCK` unless you `eval` it, so it coexists
-  with 1Password/Secretive. To scope it per-host without `eval`, point a `~/.ssh/config`
-  `Host` block at `IdentityAgent ~/.ssh/se-agent.sock` + `IdentityFile <key>.pub`.
+### From source
 
-**Quick self-test** against a local throwaway sshd (no sudo, no other machine; you
-tap Touch ID once):
 ```sh
-bash scripts/selftest.sh ~/keys/se/id      # creates the key if missing
+git clone https://github.com/botanica/sod && cd sod
+make install      # builds a universal binary, installs to /usr/local (sudo)
+# or just: swift build -c release   (binary at .build/release/sod)
 ```
+
+## Quickstart
+
+```sh
+sod ssh-keygen                 # creates ~/.ssh/id_sod (+ .pub); no Touch ID at creation
+eval "$(sod ssh-agent)"        # starts/reuses the agent, exports SSH_AUTH_SOCK
+sod ssh-add                    # loads ~/.ssh/id_sod into the agent
+ssh -i ~/.ssh/id_sod user@host # Touch ID prompts on connect
+```
+
+## Usage
+
+**Generate a key.** The default `~/.ssh/id_sod` never collides with your normal
+`id_ecdsa`/`id_ed25519`. Or put it anywhere:
+
+```sh
+sod ssh-keygen                              # -> ~/.ssh/id_sod (+ id_sod.pub)
+sod ssh-keygen -f ~/keys/work -C "me@work"  # -> ~/keys/work  (+ work.pub)
+sod ssh-keygen -y -f ~/keys/work            # reprint the .pub line from a handle
+```
+
+**Run the agent.** With no options it starts an agent (or reuses a running one) on the
+fixed socket `~/.ssh/sod-agent.sock` and prints the env to use it:
+
+```sh
+eval "$(sod ssh-agent)"        # sh/zsh/csh/fish auto-detected (-s / -c to force)
+sod ssh-agent -k               # stop it
+```
+
+To start it automatically at every login (optional):
+
+```sh
+sod ssh-agent --install-launch-agent
+# then add to your shell profile so every shell finds it:
+echo 'export SSH_AUTH_SOCK="$HOME/.ssh/sod-agent.sock"' >> ~/.zshrc
+```
+
+**Load / list / unload keys** (no PIN prompt, unlike stock `ssh-add -s`):
+
+```sh
+sod ssh-add                    # load the default ~/.ssh/id_sod
+sod ssh-add ~/keys/work        # load a specific handle
+sod ssh-add -l                 # list fingerprints   (-L for full public keys)
+sod ssh-add -d ~/keys/work     # unload one          (-D to unload all)
+```
+
+**Authorize and connect.** Put the `.pub` on the server, then connect:
+
+```sh
+ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+ssh user@host                  # Touch ID on connect
+```
+
+**GitHub.** Add `~/.ssh/id_sod.pub` to GitHub → *Settings → SSH and GPG keys*, then:
+
+```sh
+ssh -T git@github.com          # Touch ID; "Hi <you>! You've successfully authenticated"
+```
+
+**Interop with stock tooling (advanced).** `sod ssh-add` is just a convenience client;
+the agent also speaks to stock `ssh-add`, which loads Secure-Enclave handles via its
+smartcard messages:
+
+```sh
+ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the SE ignores it
+ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
+```
+
+## How it works
+
+```
+sod ssh-keygen ──► Secure Enclave generates a P-256 key
+                   └─► ~/.ssh/id_sod      (opaque handle, no usable secret)
+                       ~/.ssh/id_sod.pub  (ecdsa-sha2-nistp256 ...)
+
+ssh ──unix socket──► sod ssh-agent ──► Secure Enclave signs  ──► Touch ID
+   (ssh-agent proto)  (holds handles)    (private key never leaves the SE)
+```
+
+The agent reconstructs the public key and lists identities without prompting; only a
+**signature** triggers Touch ID. Deleting the handle file orphans the key — there is
+no keychain item to clean up, because the blob is the only reference to it.
 
 ## Security model
-- The private key is generated in and never leaves the Secure Enclave. The handle
-  file is an opaque, device-bound `dataRepresentation` blob with **no usable
-  secret** — only this Mac's SE can use it, only via this agent.
-- Access policy is `.userPresence`: Touch ID **with passcode fallback**, durable
-  across fingerprint re-enrollment.
-- Reconstructing the key / listing identities never prompts; only **signing** does.
-- `ssh-add -s` sends a PIN field we ignore; presence is enforced by the SE at sign
-  time, not by a PIN.
+
+- The private key is generated in and never leaves the Secure Enclave. The handle is
+  the CryptoKit `dataRepresentation` — a device-bound, SEP-wrapped blob with no usable
+  secret; only this Mac's SE can use it.
+- `.userPresence` = Touch ID with passcode fallback, durable across re-enrollment.
+- Listing identities / reading the public key never prompts; only signing does.
+- No keychain item, no keychain access group, no entitlements — which is also why a
+  plain Developer-ID signature notarizes cleanly. See [`SECURITY.md`](SECURITY.md) to
+  report a vulnerability.
 
 ## Development & testing (no Touch ID)
-All SE operations sit behind a `KeyBackend` seam. A build-time mock (a plain
-in-process P-256 key — real signatures, **no SE, no Touch ID**) runs the whole
-flow without a fingerprint:
-```sh
-swift run wire-tests                       # pure wire-format unit tests (no SE)
-SE_SSH_MOCK=1 swift build                  # build keygen+agent with the mock backend
-SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/k   # full eval → ssh-add -s → ssh, no taps
-```
-The mock is compiled **only** when `SE_SSH_MOCK` is set, so it is physically absent
-from a normal/release build. Mock builds print a loud warning on stderr.
 
-## Layout
-- `Sources/SSHWire/` — pure SSH wire format (uint32/string/mpint, ecdsa pub/sig
-  blobs, ssh-agent framing incl. smartcard add/remove). No SE imports.
-- `Sources/SEKeyStore/` — `KeyBackend` protocol, `SecureEnclaveBackend`,
-  `MockP256Backend` (gated), handle-file format, provider resolution (file or dir).
-- `Sources/se-ssh-keygen/`, `Sources/se-ssh-agent/` — the keygen + agent CLIs.
-- `Sources/se-ssh-add/` — disposable, PIN-free key loader (see its file header).
-- `Sources/spike/` — M0 feasibility throwaway (see `M0-RESULT.md`).
-- `Tests/SSHWireTests/` — the `wire-tests` runner.
+All SE operations sit behind a `KeyBackend` seam. A build-time mock (a plain in-process
+P-256 key — real signatures, no SE, no Touch ID) runs the whole flow without a finger:
+
+```sh
+SE_SSH_MOCK=1 swift run sod-tests              # wire + keystore + agent unit suites
+SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/k  # full generate → agent → ssh-add → ssh, no taps
+```
+
+The mock is compiled **only** when `SE_SSH_MOCK` is set, so it is physically absent
+from any release build (which prints a loud warning if you somehow build one). See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the lint and coverage commands.
+
+## Project layout
+
+- `Sources/SSHWire/` — pure SSH wire format (uint32/string/mpint, ecdsa blobs,
+  ssh-agent framing). No SE imports; fully unit-tested.
+- `Sources/SEKeyStore/` — `KeyBackend`, `SecureEnclaveBackend`, gated `MockP256Backend`,
+  the handle-file format, and provider resolution.
+- `Sources/SodKit/` — the keygen/agent/add command logic + argument parsing.
+- `Sources/sod/` — the thin `@main` entry point.
+- `Tests/SodTests/`, `scripts/`, `packaging/`, `man/`, `docs/` — tests, build &
+  packaging, the man page, and design notes (`docs/PLAN.md`, `docs/M0-RESULT.md`).
+
+## Why not the Mac App Store?
+
+The App Store requires a sandboxed `.app`. A sandboxed app can't install a tool onto
+your `PATH`, can't write a man page, and can't bind a unix socket in `~/.ssh` that the
+system `ssh` can reach — the very things that make `sod` useful. So `sod` ships as a
+notarized Developer-ID `.pkg` and via Homebrew, the idiomatic channels for a CLI.
+
+## License
+
+[MIT](LICENSE) © Botanica Software Labs. A Botanica Software Labs product.

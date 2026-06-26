@@ -1,0 +1,8 @@
+# Code owners — auto-requested for review on matching paths.
+# Replace @botanica/maintainers with your GitHub username or team.
+
+*                       @botanica/maintainers
+
+# Crypto / Secure Enclave / wire format: security-sensitive, extra scrutiny.
+/Sources/SEKeyStore/    @botanica/maintainers
+/Sources/SSHWire/       @botanica/maintainers
