@@ -1,0 +1,124 @@
+.Dd June 26, 2026
+.Dt SOD 1
+.Os
+.Sh NAME
+.Nm sod
+.Nd Secure-Enclave-backed SSH key, agent, and loader
+.Sh SYNOPSIS
+.Nm
+.Cm ssh-keygen
+.Op Fl f Ar keyfile
+.Op Fl C Ar comment
+.Op Fl t Cm ecdsa
+.Op Fl y
+.Nm
+.Cm ssh-agent
+.Op Fl a Ar socket
+.Op Fl s | Fl c
+.Op Fl d | Fl k
+.Op Ar provider ...
+.Nm
+.Cm ssh-add
+.Op Fl a Ar socket
+.Oo Fl d | Fl D | Fl l | Fl L Oc
+.Op Ar keyfile ...
+.Sh DESCRIPTION
+.Nm
+keeps an SSH authentication key in the Secure Enclave and serves it to stock
+OpenSSH over the ssh-agent protocol.
+The private key is generated inside the Secure Enclave and never leaves it;
+Touch ID is required for every signature.
+The commands mirror the OpenSSH tools they imitate.
+.Ss sod ssh-keygen
+Create a Secure-Enclave P-256 key: an opaque handle file plus a standard
+.Pa .pub
+public-key line.
+.Bl -tag -width "-C comment"
+.It Fl f Ar keyfile
+Output keyfile (default
+.Pa ~/.ssh/id_sod ) .
+.It Fl C Ar comment
+Comment for the public-key line (default
+.Ar user@host ) .
+.It Fl t Cm ecdsa
+Key type; only
+.Cm ecdsa
+is accepted (the Secure Enclave is P-256 only).
+.It Fl y
+Read a handle file and print its public-key line.
+.El
+.Ss sod ssh-agent
+Run the agent on a unix socket.
+With no options it ensures an agent is running (reusing one if present) and
+prints shell commands to set
+.Ev SSH_AUTH_SOCK :
+.Dl eval \&"$(sod ssh-agent)\&"
+.Bl -tag -width "-a socket"
+.It Fl a Ar socket
+Socket path (default
+.Pa ~/.ssh/sod-agent.sock ) .
+.It Fl s | Fl c
+Force Bourne-shell (sh) or C-shell (csh) env output (default: detect from
+.Ev SHELL ) .
+.It Fl d
+Foreground mode: bind and serve, do not fork (debugging / LaunchAgent).
+.It Fl k
+Kill the agent running on the socket.
+.It Fl Fl install-launch-agent
+Install a per-user LaunchAgent that starts the agent at login.
+.It Fl Fl uninstall-launch-agent
+Remove that LaunchAgent.
+.El
+.Ss sod ssh-add
+Load, unload, or list keys.
+With no arguments, loads the default key
+.Pa ~/.ssh/id_sod .
+.Bl -tag -width "-a socket"
+.It Fl a Ar socket
+Agent socket (default
+.Ev SSH_AUTH_SOCK ,
+else
+.Pa ~/.ssh/sod-agent.sock ) .
+.It Fl d , Fl e
+Unload the given key(s).
+.It Fl D
+Unload all keys.
+.It Fl l , Fl L
+List loaded keys as fingerprints
+.Pq Fl l
+or full public keys
+.Pq Fl L .
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width SSH_AUTH_SOCK
+.It Ev SSH_AUTH_SOCK
+Default agent socket for
+.Cm ssh-add .
+.El
+.Sh FILES
+.Bl -tag -width "~/.ssh/sod-agent.sock"
+.It Pa ~/.ssh/id_sod
+Default key handle.
+.It Pa ~/.ssh/id_sod.pub
+Default public key.
+.It Pa ~/.ssh/sod-agent.sock
+Default agent socket.
+.El
+.Sh EXAMPLES
+Generate a key, start the agent, load it, and connect:
+.Bd -literal -offset indent
+sod ssh-keygen -f ~/.ssh/id_sod
+eval \&"$(sod ssh-agent)\&"
+sod ssh-add ~/.ssh/id_sod
+ssh -i ~/.ssh/id_sod user@host
+.Ed
+.Sh SEE ALSO
+.Xr ssh 1 ,
+.Xr ssh-add 1 ,
+.Xr ssh-agent 1 ,
+.Xr ssh-keygen 1
+.Sh AUTHORS
+.An Botanica Software Labs
+.Sh CAVEATS
+macOS only.
+The Secure Enclave requires Apple Silicon or a T2 chip.

@@ -281,6 +281,12 @@ public struct Agent: ParsableCommand {
     @Flag(name: .customShort("E"), help: "Ensure an agent is running and print its env (the default).")
     var ensure = false
 
+    @Flag(name: .long, help: "Install a per-user LaunchAgent that starts the agent at login.")
+    var installLaunchAgent = false
+
+    @Flag(name: .long, help: "Remove the LaunchAgent installed by --install-launch-agent.")
+    var uninstallLaunchAgent = false
+
     @Flag(name: .long, help: ArgumentHelp(visibility: .private))  // internal: invoked by the lazy-spawn path
     var daemon = false
 
@@ -292,6 +298,17 @@ public struct Agent: ParsableCommand {
     public func run() throws {
         let sock = expandTilde(socket ?? "~/.ssh/sod-agent.sock")
         let provs = providers.map { expandTilde($0) }
+
+        if installLaunchAgent {
+            let r = LaunchAgentManager.install(sodPath: executablePath(), socketPath: sock)
+            guard r.ok else { errExit(r.message) }
+            elog(r.message)
+            return
+        }
+        if uninstallLaunchAgent {
+            elog(LaunchAgentManager.uninstall().message)
+            return
+        }
 
         if kill { killAgent(socketPath: sock) }  // Never
         if daemon { runListen(socketPath: sock, providers: provs, detach: true) }  // Never

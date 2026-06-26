@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write          # create the GitHub Release + upload assets
+
+jobs:
+  release:
+    runs-on: macos-14
+    # Signing/notarization are opt-in: absent secrets resolve to empty strings, so
+    # the scripts no-op and the release ships unsigned (ad-hoc) until secrets exist.
+    env:
+      DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
+      DEVELOPER_ID_INSTALLER: ${{ secrets.DEVELOPER_ID_INSTALLER }}
+      NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build universal sod
+        run: bash scripts/build-universal.sh
+
+      - name: Sign (opt-in)
+        run: bash scripts/sign.sh
+
+      - name: Build .pkg (installer signing opt-in)
+        run: bash scripts/make-pkg.sh
+
+      - name: Notarize + staple (opt-in)
+        run: bash scripts/notarize.sh
+
+      - name: Tarball + checksums
+        run: |
+          cd dist
+          tar -czf "sod-${GITHUB_REF_NAME}-universal.tar.gz" sod
+          shasum -a 256 sod-*.tar.gz sod-*.pkg > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/sod-*.pkg
+            dist/sod-*-universal.tar.gz
+            dist/SHA256SUMS.txt

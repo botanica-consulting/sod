@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>sod — Secure Enclave SSH agent</title>
+    <organization>consulting.botanica</organization>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+
+    <!-- macOS 13 Ventura minimum -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="13.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <welcome    file="welcome.html"    mime-type="text/html"/>
+    <license    file="LICENSE.txt"     mime-type="text/plain"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <pkg-ref id="consulting.botanica.sod"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="consulting.botanica.sod"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="consulting.botanica.sod" visible="false">
+        <pkg-ref id="consulting.botanica.sod"/>
+    </choice>
+
+    <pkg-ref id="consulting.botanica.sod" version="0" onConclusion="none">sod-component.pkg</pkg-ref>
+</installer-gui-script>
