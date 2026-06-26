@@ -7,7 +7,7 @@
 
 **Your SSH key, sealed in the Secure Enclave. Touch ID to sign.**
 
-[![CI](https://github.com/botanica/sod/actions/workflows/ci.yml/badge.svg)](https://github.com/botanica/sod/actions/workflows/ci.yml)
+[![CI](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml/badge.svg)](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#requirements)
 [![Swift 6](https://img.shields.io/badge/Swift-6-orange?logo=swift)](Package.swift)
@@ -51,18 +51,18 @@ One binary, three subcommands that mirror the OpenSSH tools they imitate:
 ### Homebrew
 
 ```sh
-brew install botanica/tap/sod
+brew install botanica-consulting/tap/sod
 ```
 
 ### Notarized installer
 
-Download `sod-<version>.pkg` from [Releases](https://github.com/botanica/sod/releases)
+Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
 and open it. It installs `sod` to `/usr/local/bin` and its man page — nothing else.
 
 ### From source
 
 ```sh
-git clone https://github.com/botanica/sod && cd sod
+git clone https://github.com/botanica-consulting/sod && cd sod
 make install      # builds a universal binary, installs to /usr/local (sudo)
 # or just: swift build -c release   (binary at .build/release/sod)
 ```

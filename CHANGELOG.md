@@ -25,4 +25,4 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - New handle-file magic `SOD-HANDLE-v1`; the legacy `SE-SSH-HANDLE-v1` is still
   accepted on read, so existing keys keep working.
 
-[Unreleased]: https://github.com/botanica/sod/commits/main
+[Unreleased]: https://github.com/botanica-consulting/sod/commits/main

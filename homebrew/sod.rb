@@ -1,12 +1,12 @@
 # Mirror of the tap formula. The live copy belongs at:
-#   botanica/homebrew-tap → Formula/sod.rb   (so `brew install botanica/tap/sod`)
+#   botanica-consulting/homebrew-tap → Formula/sod.rb   (so `brew install botanica-consulting/tap/sod`)
 # Fill in `revision` with the tagged commit SHA when cutting a release.
 class Sod < Formula
   desc "Secure-Enclave-backed SSH agent and keygen (Touch ID on every signature)"
-  homepage "https://github.com/botanica/sod"
-  url "https://github.com/botanica/sod.git", tag: "v0.1.0", revision: "FILL_IN_40CHAR_SHA"
+  homepage "https://github.com/botanica-consulting/sod"
+  url "https://github.com/botanica-consulting/sod.git", tag: "v0.1.0", revision: "FILL_IN_40CHAR_SHA"
   license "MIT"
-  head "https://github.com/botanica/sod.git", branch: "main"
+  head "https://github.com/botanica-consulting/sod.git", branch: "main"
 
   depends_on xcode: ["15.0", :build]
   depends_on macos: :ventura          # macOS 13+
