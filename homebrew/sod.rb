@@ -19,6 +19,18 @@ class Sod < Formula
     man1.install "man/sod.1"
   end
 
+  def caveats
+    <<~EOS
+      Set sod up to run at login (it never edits your shell files — it prints the
+      line for you to paste):
+
+        sod ssh-keygen    # if you don't have a key yet
+        sod install       # run the agent at login + print the SSH_AUTH_SOCK line
+
+      Before `brew uninstall`, run `sod uninstall` to remove the login agent.
+    EOS
+  end
+
   test do
     assert_match version.to_s, shell_output("#{bin}/sod --version")
     assert_match "usage", shell_output("#{bin}/sod ssh-keygen --help 2>&1")
