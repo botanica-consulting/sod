@@ -1,44 +1,24 @@
-// Self-contained test runner for the pure SSHWire library.
-// No XCTest/Testing (absent under Command Line Tools). Run: `swift run wire-tests`.
-// Exits 0 on success, 1 on any failure.
-
-import Foundation
 import CryptoKit   // test-only: produce real ECDSA vectors; SSHWire itself imports none of this
+import Foundation
 import SSHWire
 
-final class Harness {
-    var checks = 0
-    var failures = 0
+// Vector captured 2026-06-25 from `ssh-keygen -t ecdsa -b 256 -C vector@m0`.
+private let realPubBlobB64 =
+    "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLrfTOpAMyG7gBdNExBavhwNXAx/Sd1W4A1lreztfwY37vHS7yZuOQXeXsDl8GRtUSk4jCPPdjUqd3fND4IxzGk="
 
-    func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
-
-    func fail(_ msg: String, line: UInt = #line) {
-        failures += 1
-        FileHandle.standardError.write(Data("FAIL [\(line)] \(msg)\n".utf8))
+extension Harness {
+    /// The pure SSHWire suite (no Secure Enclave / Touch ID); always runs.
+    func runWireSuite() {
+        runPrimitives()
+        runByteReader()
+        do { try runPubKey() } catch { fail("pubkey section threw \(error)") }
+        do { try runSignature() } catch { fail("signature section threw \(error)") }
+        do { try runFraming() } catch { fail("framing section threw \(error)") }
+        runParseRequests()
     }
-    func ok(_ cond: Bool, _ label: String, line: UInt = #line) {
-        checks += 1
-        if !cond { fail(label, line: line) }
-    }
-    func eq<T: Equatable>(_ a: T, _ b: T, _ label: String, line: UInt = #line) {
-        checks += 1
-        if a != b { fail("\(label): \(a) != \(b)", line: line) }
-    }
-    func eqData(_ a: Data, _ b: Data, _ label: String, line: UInt = #line) {
-        checks += 1
-        if a != b { fail("\(label): \(hex(a)) != \(hex(b))", line: line) }
-    }
-    func throwsErr(_ label: String, line: UInt = #line, _ body: () throws -> Void) {
-        checks += 1
-        do { try body(); fail("\(label): expected throw", line: line) } catch { /* expected */ }
-    }
-
-    // Vector captured 2026-06-25 from `ssh-keygen -t ecdsa -b 256 -C vector@m0`.
-    let realPubBlobB64 =
-        "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLrfTOpAMyG7gBdNExBavhwNXAx/Sd1W4A1lreztfwY37vHS7yZuOQXeXsDl8GRtUSk4jCPPdjUqd3fND4IxzGk="
 
     func runPrimitives() {
-        eqData(SSHWire.uint32(0x01020304), Data([1, 2, 3, 4]), "uint32 big-endian")
+        eqData(SSHWire.uint32(0x0102_0304), Data([1, 2, 3, 4]), "uint32 big-endian")
         eqData(SSHWire.uint32(0), Data([0, 0, 0, 0]), "uint32 zero")
         eqData(SSHWire.uint32(.max), Data([0xff, 0xff, 0xff, 0xff]), "uint32 max")
 
@@ -81,7 +61,7 @@ final class Harness {
            "ecdsa-sha2-nistp256 \(realPubBlobB64)", "pub line no comment")
     }
 
-    private func leftPad32(_ mpintContent: Data) -> Data {
+    func leftPad32(_ mpintContent: Data) -> Data {
         var b = [UInt8](mpintContent)
         while b.count > 32, b.first == 0x00 { b.removeFirst() }   // drop mpint sign pad
         while b.count < 32 { b.insert(0x00, at: 0) }              // left-pad to fixed width
@@ -137,6 +117,7 @@ final class Harness {
 
     func runParseRequests() {
         eq(SSHWire.parseRequest(type: 11, payload: Data()), .requestIdentities, "parse request-identities")
+        eq(SSHWire.parseRequest(type: 9, payload: Data()), .removeAllIdentities, "parse remove-all (-D)")
 
         let signReq = SSHWire.string(Data([0xaa])) + SSHWire.string(Data([0xbb, 0xcc])) + SSHWire.uint32(0)
         eq(SSHWire.parseRequest(type: 13, payload: signReq),
@@ -157,29 +138,5 @@ final class Harness {
         let rem = SSHWire.string("/path/to/key") + SSHWire.string("")
         eq(SSHWire.parseRequest(type: 21, payload: rem),
            .removeSmartcardKey(provider: "/path/to/key"), "parse remove-smartcard (-e)")
-    }
-
-    func finishAndExit() -> Never {
-        if failures == 0 {
-            print("ok — \(checks) checks passed")
-            exit(0)
-        } else {
-            FileHandle.standardError.write(Data("FAILED — \(failures) of \(checks) checks failed\n".utf8))
-            exit(1)
-        }
-    }
-}
-
-@main
-struct TestRunner {
-    static func main() {
-        let h = Harness()
-        h.runPrimitives()
-        h.runByteReader()
-        do { try h.runPubKey() } catch { h.fail("pubkey section threw \(error)") }
-        do { try h.runSignature() } catch { h.fail("signature section threw \(error)") }
-        do { try h.runFraming() } catch { h.fail("framing section threw \(error)") }
-        h.runParseRequests()
-        h.finishAndExit()
     }
 }
