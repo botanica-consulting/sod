@@ -27,6 +27,10 @@ jobs:
     env:
       DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
       DEVELOPER_ID_INSTALLER: ${{ secrets.DEVELOPER_ID_INSTALLER }}
+      # Surfaced as env so the step `if:` can gate on them — `secrets` is not a
+      # valid context inside an `if:` expression, but `env` is.
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +43,7 @@ jobs:
 
       # --- Signing setup (skipped automatically when secrets are absent) ----------
       - name: Import signing certificates
-        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+        if: ${{ env.MACOS_CERT_P12_BASE64 != '' }}
         env:
           P12_B64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           P12_PW: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -61,7 +65,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Set up notarization credentials
-        if: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+        if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
         env:
           P8_B64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
           KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
