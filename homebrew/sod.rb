@@ -15,8 +15,8 @@ class Sod < Formula
     ENV["SOD_VERSION"] = version.to_s   # gen-version.sh override (no .git in a brew checkout)
     system "swift", "build", "--configuration", "release",
            "--arch", "arm64", "--arch", "x86_64", "--disable-sandbox"
-    bin.install ".build/apple/Products/Release/sod"
-    man1.install "man/sod.1"
+    bin.install ".build/apple/Products/Release/sd"
+    man1.install "man/sd.1"
   end
 
   def caveats
@@ -24,15 +24,15 @@ class Sod < Formula
       Set sod up to run at login (it never edits your shell files — it prints the
       line for you to paste):
 
-        sod ssh-keygen    # if you don't have a key yet
-        sod install       # run the agent at login + print the SSH_AUTH_SOCK line
+        sd ssh-keygen    # if you don't have a key yet
+        sd install       # run the agent at login + print the SSH_AUTH_SOCK line
 
-      Before `brew uninstall`, run `sod uninstall` to remove the login agent.
+      Before `brew uninstall`, run `sd uninstall` to remove the login agent.
     EOS
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/sod --version")
-    assert_match "usage", shell_output("#{bin}/sod ssh-keygen --help 2>&1")
+    assert_match version.to_s, shell_output("#{bin}/sd --version")
+    assert_match "usage", shell_output("#{bin}/sd ssh-keygen --help 2>&1")
   end
 end

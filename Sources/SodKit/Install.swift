@@ -2,11 +2,11 @@ import ArgumentParser
 import Foundation
 import SEKeyStore
 
-private let tool = "sod install"
+private let tool = "sd install"
 private func elog(_ s: String) { FileHandle.standardError.write(Data("\(tool): \(s)\n".utf8)) }
 private func errExit(_ s: String) -> Never { elog(s); exit(1) }
 
-/// `sod install` — the one-step setup after `brew install`: it runs the agent at login
+/// `sd install` — the one-step setup after `brew install`: it runs the agent at login
 /// and prints the single line to add to your shell startup file. Deliberately a plain
 /// top-level command (not a flag on `ssh-agent`, which mirrors OpenSSH's flagless tool).
 public struct Install: ParsableCommand {
@@ -14,10 +14,10 @@ public struct Install: ParsableCommand {
         commandName: "install",
         abstract: "Run the agent at login and print the line to add to your shell startup file.",
         discussion: """
-            Installs a per-user LaunchAgent so `sod ssh-agent` runs on a fixed socket at
+            Installs a per-user LaunchAgent so `sd ssh-agent` runs on a fixed socket at
             login (and restarts if it exits), then prints the one line to add to your
             shell startup file so every shell finds it. It edits nothing on your behalf —
-            you paste the printed line yourself. Reverse it with `sod uninstall`.
+            you paste the printed line yourself. Reverse it with `sd uninstall`.
             """
     )
 
@@ -43,7 +43,7 @@ public struct Install: ParsableCommand {
         if !hasKey {
             print("You don't have a key yet. Create one first:")
             print("")
-            print("    sod ssh-keygen")
+            print("    sd ssh-keygen")
             print("")
         }
         print("Add this line to \(snip.rcFile), then open a new shell:")
@@ -52,7 +52,7 @@ public struct Install: ParsableCommand {
         print("")
         print("Then load your key into the agent:")
         print("")
-        print("    sod ssh-add")
+        print("    sd ssh-add")
         print("")
         print("Prefer to keep your current agent (1Password, Secretive, …) for most hosts?")
         print("Skip the line above and route only chosen hosts to sod in ~/.ssh/config:")
@@ -62,11 +62,11 @@ public struct Install: ParsableCommand {
     }
 }
 
-/// `sod uninstall` — remove the LaunchAgent installed by `sod install`.
+/// `sd uninstall` — remove the LaunchAgent installed by `sd install`.
 public struct Uninstall: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "uninstall",
-        abstract: "Remove the login agent installed by `sod install`."
+        abstract: "Remove the login agent installed by `sd install`."
     )
 
     public init() {}

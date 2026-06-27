@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-contained end-to-end test of the Secure-Enclave SSH setup.
 # Spins up a throwaway sshd on 127.0.0.1:4022 (no sudo, no changes to your real SSH
-# config), then runs the real flow: eval "$(sod ssh-agent -E)" -> sod ssh-add <key>
+# config), then runs the real flow: eval "$(sd ssh-agent -E)" -> sd ssh-add <key>
 # -> ssh -i <key>. With a real Secure Enclave you approve ONE Touch ID prompt; under
 # SE_SSH_MOCK=1 there are no prompts. Cleans up the agent + sshd on exit.
 #
@@ -16,8 +16,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 # build of the other flavor). Incremental: near-instant if already built.
 ( cd "$REPO" && bash scripts/gen-version.sh >/dev/null && swift build -c release >/dev/null ) \
   || { echo "build failed (try: swift build -c release)"; exit 1; }
-SOD="$REPO/.build/release/sod"
-[ -x "$SOD" ] || { echo "no sod binary at $SOD"; exit 1; }
+SOD="$REPO/.build/release/sd"
+[ -x "$SOD" ] || { echo "no sd binary at $SOD"; exit 1; }
 
 KEY="${1:-$HOME/.ssh/id_sod}"
 [ -f "$KEY" ] || { echo "creating SE key: $KEY"; "$SOD" ssh-keygen -f "$KEY"; }
@@ -60,11 +60,11 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-echo "--- eval \"\$(sod ssh-agent -E -a $SOCK)\"  (start empty agent) ---"
+echo "--- eval \"\$(sd ssh-agent -E -a $SOCK)\"  (start empty agent) ---"
 eval "$("$SOD" ssh-agent -E -a "$SOCK")"
 echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
 
-echo "--- sod ssh-add $KEY   (load the key, no PIN prompt) ---"
+echo "--- sd ssh-add $KEY   (load the key, no PIN prompt) ---"
 "$SOD" ssh-add -a "$SOCK" "$KEY"
 "$SOD" ssh-add -a "$SOCK" -l
 

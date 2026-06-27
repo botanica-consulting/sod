@@ -88,7 +88,7 @@ jobs:
           echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
 
       # --- Build → sign → pkg → notarize (each script no-ops if its vars are unset) -
-      - name: Build universal sod
+      - name: Build universal sd
         run: bash scripts/build-universal.sh
       - name: Sign binary
         run: bash scripts/sign.sh
@@ -100,7 +100,8 @@ jobs:
       - name: Tarball + checksums
         run: |
           cd dist
-          tar -czf "sod-${GITHUB_REF_NAME}-universal.tar.gz" sod
+          # Archive name keeps the `sod-` product prefix (matches the .pkg); the binary inside is `sd`.
+          tar -czf "sod-${GITHUB_REF_NAME}-universal.tar.gz" sd
           shasum -a 256 sod-*.tar.gz sod-*.pkg > SHA256SUMS.txt
 
       - name: Publish GitHub Release (tag pushes)

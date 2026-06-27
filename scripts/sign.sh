@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Code-sign dist/sod IFF $DEVELOPER_ID_APP is set; otherwise leave SwiftPM's ad-hoc
+# Code-sign dist/sd IFF $DEVELOPER_ID_APP is set; otherwise leave SwiftPM's ad-hoc
 # signature in place (unsigned distribution). Hardened runtime + secure timestamp,
 # and NO entitlements: the SE dataRepresentation + .userPresence model needs none.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-BIN="dist/sod"
+BIN="dist/sd"
 [ -x "$BIN" ] || { echo "sign: build first (no $BIN — run: make universal)"; exit 1; }
 
 if [ -z "${DEVELOPER_ID_APP:-}" ]; then

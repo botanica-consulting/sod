@@ -4,7 +4,7 @@ import Foundation
 import SEKeyStore
 import SSHWire
 
-private let tool = "sod ssh-keygen"
+private let tool = "sd ssh-keygen"
 private func elog(_ msg: String) { FileHandle.standardError.write(Data("\(tool): \(msg)\n".utf8)) }
 private func errExit(_ msg: String) -> Never { elog(msg); exit(1) }
 

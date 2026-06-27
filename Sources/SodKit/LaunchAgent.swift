@@ -4,8 +4,8 @@ import Foundation
 import Darwin
 #endif
 
-/// Optional per-user LaunchAgent that keeps `sod ssh-agent` running on a fixed
-/// socket across logins. Installed only on explicit request (`sod install`); the .pkg
+/// Optional per-user LaunchAgent that keeps `sd ssh-agent` running on a fixed
+/// socket across logins. Installed only on explicit request (`sd install`); the .pkg
 /// never writes it. It must be a LaunchAgent (GUI session), never a LaunchDaemon, or
 /// Touch ID cannot present.
 enum LaunchAgentManager {
@@ -61,6 +61,11 @@ enum LaunchAgentManager {
             return (false, "wrote \(path) but `launchctl bootstrap` failed (exit \(rc))")
         }
         return (true, "installed \(label)")
+    }
+
+    /// Whether launchd currently has the agent loaded (used by `sd doctor`).
+    static func isLoaded() -> Bool {
+        runLaunchctl(["print", "gui/\(getuid())/\(label)"]) == 0
     }
 
     static func uninstall() -> (ok: Bool, message: String) {

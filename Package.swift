@@ -10,8 +10,10 @@ let package = Package(
     name: "sod",
     platforms: [.macOS(.v13)],
     products: [
-        // The single shipped binary: `sod <subcommand>`.
-        .executable(name: "sod", targets: ["sod"]),
+        // The single shipped binary: `sd <subcommand>`. The product/target are named
+        // `sd` (that's what names the built executable file); the source directory,
+        // package, module, and all branding stay `sod`.
+        .executable(name: "sd", targets: ["sd"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
@@ -33,13 +35,15 @@ let package = Package(
             swiftSettings: mockSettings
         ),
 
-        // Thin executable: @main + subcommand dispatch only.
+        // Thin executable: @main + subcommand dispatch only. Named `sd` so SwiftPM
+        // emits a `sd` binary; `path:` keeps the sources in the unchanged Sources/sod dir.
         .executableTarget(
-            name: "sod",
+            name: "sd",
             dependencies: [
                 "SodKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
+            path: "Sources/sod",
             swiftSettings: mockSettings
         ),
 
