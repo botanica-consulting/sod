@@ -55,16 +55,24 @@ exactly what to fix.
 
 ## Install
 
+Two ways to get the `sd` binary — pick whichever suits you. **Either way, the one-time
+setup afterward is the same: `sd install` (see [Quickstart](#quickstart)).**
+
 ### Homebrew
 
 ```sh
 brew install botanica-consulting/tap/sod
 ```
 
-### Packaged installer
+Builds from source, so it needs a Swift toolchain — the Xcode **Command Line Tools**
+(`xcode-select --install`), *not* the full Xcode app.
+
+### Prebuilt installer — no toolchain
 
 Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
-and open it. It installs `sd` to `/usr/local/bin` and its man page — nothing else.
+and open it. It's a **notarized, universal binary**: no Homebrew, no compiler, nothing to
+build. It copies `sd` to `/usr/local/bin` (plus its man page) and **nothing else** — it does
+not touch your shell startup files or any agent. You still run `sd install` once afterward.
 
 ### From source
 
@@ -76,18 +84,27 @@ make install      # builds a universal binary, installs to /usr/local (sudo)
 
 ## Quickstart
 
+These steps are the same no matter how you installed `sd` — Homebrew and the `.pkg` both
+land you here, and **`sd install` is the shared setup step.**
+
 ```sh
-brew install botanica-consulting/tap/sod
-sd ssh-keygen          # create ~/.ssh/id_sod (+ .pub); no Touch ID yet
-sd install             # run the agent at login + print the line for your shell startup file
+sd ssh-keygen          # create the Secure-Enclave key (~/.ssh/id_sod + .pub); no Touch ID yet
+sd install             # install the login agent + PRINT the SSH_AUTH_SOCK line for your shell
 sd ssh-add             # load ~/.ssh/id_sod into the agent
 sd doctor              # verify it's all wired up (key, agent, login item, shell)
 ```
 
-`sd install` prints the exact `SSH_AUTH_SOCK` line for your shell — paste it into the
-startup file it names, open a new shell, and `ssh` will use sod (Touch ID on every
-connection). Authorize the key on your server first with
-`ssh-copy-id -i ~/.ssh/id_sod.pub user@host`.
+`sd install` installs a per-user LaunchAgent — the agent then runs at every login on the
+fixed socket `~/.ssh/sod-agent.sock` — and **prints** the exact `SSH_AUTH_SOCK` line for your
+shell. It never edits your startup file for you: paste the one line it shows, open a new
+shell, and `ssh` will use sod with Touch ID on every connection. (`sd uninstall` reverses it.)
+
+Authorize the key on your server first:
+
+```sh
+ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+ssh user@host          # Touch ID on connect
+```
 
 ## Advanced usage
 
