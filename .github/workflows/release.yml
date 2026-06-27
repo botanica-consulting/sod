@@ -11,16 +11,20 @@ permissions:
 # Repository secrets for SIGNED + NOTARIZED builds. With NONE set, the workflow still
 # produces an UNSIGNED .pkg + tarball so it never blocks. Set them together:
 #
-#   MACOS_CERT_P12_BASE64   base64 of ONE .p12 holding BOTH "Developer ID Application"
-#                           and "Developer ID Installer" (each cert + its private key).
-#                           In Keychain Access select both identities, export as one .p12, then:
-#                             base64 -i certs.p12 | pbcopy
-#   MACOS_CERT_PASSWORD     the .p12 export password
-#   DEVELOPER_ID_APP        "Developer ID Application: <Name> (TEAMID)"
-#   DEVELOPER_ID_INSTALLER  "Developer ID Installer: <Name> (TEAMID)"
-#   NOTARY_KEY_P8_BASE64    base64 of the App Store Connect API key AuthKey_XXXX.p8
-#   NOTARY_KEY_ID           the API Key ID
-#   NOTARY_ISSUER_ID        the API Issuer ID (UUID)
+#   MACOS_CERT_APP_P12_BASE64        base64 of a .p12 holding ONLY the "Developer ID
+#                                    Application" cert + its private key.
+#   MACOS_CERT_INSTALLER_P12_BASE64  base64 of a .p12 holding ONLY the "Developer ID
+#                                    Installer" cert + its private key.
+#                                    (Two separate p12s: `security import` reliably binds
+#                                    only one identity from a multi-identity p12, so the
+#                                    app and installer certs must be imported separately —
+#                                    the action's own documented multi-cert pattern.)
+#   MACOS_CERT_PASSWORD              the export password (use the SAME one for both p12s)
+#   DEVELOPER_ID_APP                 "Developer ID Application: <Name> (TEAMID)"
+#   DEVELOPER_ID_INSTALLER           "Developer ID Installer: <Name> (TEAMID)"
+#   NOTARY_KEY_P8_BASE64             base64 of the App Store Connect API key AuthKey_XXXX.p8
+#   NOTARY_KEY_ID                    the API Key ID
+#   NOTARY_ISSUER_ID                 the API Issuer ID (UUID)
 
 jobs:
   release:
@@ -32,7 +36,8 @@ jobs:
       NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
       # Surfaced as env so step `if:`s can gate on them — `secrets` is not a valid
       # context inside an `if:` expression, but `env` is.
-      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_APP_P12_BASE64: ${{ secrets.MACOS_CERT_APP_P12_BASE64 }}
+      MACOS_CERT_INSTALLER_P12_BASE64: ${{ secrets.MACOS_CERT_INSTALLER_P12_BASE64 }}
       NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
     steps:
       - uses: actions/checkout@v4
@@ -45,30 +50,31 @@ jobs:
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
 
       # --- Signing setup (skipped automatically when secrets are absent) ----------
-      # The canonical Apple action imports the combined p12 into a temporary keychain
-      # and whitelists codesign + pkgbuild + productbuild + productsign for it — which
-      # is exactly what `sign.sh` (Developer ID Application) and `make-pkg.sh`
-      # (Developer ID Installer) need downstream. Both identities live in one p12.
-      - name: Import signing certificates
-        if: ${{ env.MACOS_CERT_P12_BASE64 != '' }}
-        uses: apple-actions/import-codesign-certs@v3
+      # Two single-identity p12s, imported in two steps. `security import` reliably
+      # binds only ONE identity from a multi-identity p12 (verified on the runner: a
+      # combined app+installer p12 yields just the Application identity), so the certs
+      # MUST arrive separately. This is the action's own documented multi-certificate
+      # pattern: the first call creates the temp keychain and emits its auto-generated
+      # password; the second reuses it via create-keychain:false + keychain-password.
+      # The action whitelists codesign + pkgbuild + productbuild + productsign, so
+      # sign.sh (Developer ID Application) and make-pkg.sh (Developer ID Installer)
+      # both find their identities downstream.
+      - name: Import Developer ID Application cert
+        id: app_cert
+        if: ${{ env.MACOS_CERT_APP_P12_BASE64 != '' }}
+        uses: apple-actions/import-codesign-certs@v7
         with:
-          p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          p12-file-base64: ${{ secrets.MACOS_CERT_APP_P12_BASE64 }}
           p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
 
-      # TEMPORARY one-shot probe: which identities actually landed in the keychain?
-      # `find-identity -v` (no policy) shows codesigning ID s; `-p basic` shows ALL
-      # identities incl. Developer ID Installer. Tells us if the Installer key bound at
-      # all, vs. a DEVELOPER_ID_INSTALLER name mismatch. Remove once .pkg signing works.
-      - name: List signing identities (diagnostic)
-        if: ${{ env.MACOS_CERT_P12_BASE64 != '' }}
-        run: |
-          echo "=== search list ==="
-          security list-keychains -d user
-          echo "=== find-identity -v  (codesigning) ==="
-          security find-identity -v || true
-          echo "=== find-identity -v -p basic  (ALL identities; installer shows here) ==="
-          security find-identity -v -p basic || true
+      - name: Import Developer ID Installer cert
+        if: ${{ env.MACOS_CERT_INSTALLER_P12_BASE64 != '' }}
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          create-keychain: false
+          keychain-password: ${{ steps.app_cert.outputs.keychain-password }}
+          p12-file-base64: ${{ secrets.MACOS_CERT_INSTALLER_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
 
       - name: Decode notarization key
         if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
