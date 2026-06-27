@@ -54,11 +54,16 @@ jobs:
           security create-keychain -p "$KPW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-build
           security unlock-keychain -p "$KPW" "$KEYCHAIN"
-          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/certs.p12"
-          # -A (allow any app on this throwaway keychain) imports BOTH identities;
-          # multiple -T flags can silently import only the first id from a multi-id p12.
-          security import "$RUNNER_TEMP/certs.p12" -P "$P12_PW" -f pkcs12 -k "$KEYCHAIN" -A
-          rm -f "$RUNNER_TEMP/certs.p12"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/orig.p12"
+          # `security import` drops a private key from this multi-identity Keychain p12
+          # (3 certs import, but only 1 identity forms). Convert to a PEM sequence with the
+          # system openssl (LibreSSL handles Keychain's RC2) and import that — PEM import
+          # pairs every key to its cert and loads BOTH identities.
+          /usr/bin/openssl pkcs12 -legacy -in "$RUNNER_TEMP/orig.p12" -passin "pass:$P12_PW" -nodes \
+            -out "$RUNNER_TEMP/all.pem" 2>/dev/null \
+            || /usr/bin/openssl pkcs12 -in "$RUNNER_TEMP/orig.p12" -passin "pass:$P12_PW" -nodes -out "$RUNNER_TEMP/all.pem"
+          security import "$RUNNER_TEMP/all.pem" -k "$KEYCHAIN" -A
+          rm -f "$RUNNER_TEMP/orig.p12" "$RUNNER_TEMP/all.pem"
           # Add our keychain to the search list and allow non-interactive signing.
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
