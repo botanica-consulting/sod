@@ -22,7 +22,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   loaded in it, and whether `SSH_AUTH_SOCK` is set in the current shell and exported
   from its startup file — with actionable hints and a non-zero exit when unhealthy.
 - Packaging: universal (arm64+x86_64) binary, notarizable `.pkg` (signing opt-in),
-  Homebrew tap formula, tag-driven GitHub Release workflow, and a man page.
+  a Homebrew tap formula that installs the prebuilt signed binary (no Xcode/source
+  build — auto-published to the tap on each release), tag-driven GitHub Release
+  workflow, and a man page.
 - CI (GitHub Actions): lint, build matrix, mock unit + end-to-end tests, coverage.
 
 ### Changed
