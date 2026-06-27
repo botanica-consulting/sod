@@ -8,18 +8,19 @@ on:
 permissions:
   contents: write              # create the GitHub Release + upload assets
 
-# Repository secrets required for SIGNED + NOTARIZED builds (set all of them together;
-# with none set, the workflow still produces an UNSIGNED .pkg so it never blocks):
-#   MACOS_CERT_P12_BASE64    base64 of a .p12 holding BOTH "Developer ID Application"
-#                            and "Developer ID Installer" (certs + private keys).
-#                            Export both from Keychain Access into one .p12, then:
-#                              base64 -i certs.p12 | pbcopy
-#   MACOS_CERT_PASSWORD      the .p12 export password
-#   DEVELOPER_ID_APP         "Developer ID Application: <Name> (TEAMID)"
-#   DEVELOPER_ID_INSTALLER   "Developer ID Installer: <Name> (TEAMID)"
-#   NOTARY_KEY_P8_BASE64     base64 of the App Store Connect API key AuthKey_XXXX.p8
-#   NOTARY_KEY_ID            the API Key ID
-#   NOTARY_ISSUER_ID         the API Issuer ID (UUID)
+# Repository secrets for SIGNED + NOTARIZED builds. With NONE set, the workflow still
+# produces an UNSIGNED .pkg + tarball so it never blocks. Set them together:
+#
+#   MACOS_CERT_P12_BASE64   base64 of ONE .p12 holding BOTH "Developer ID Application"
+#                           and "Developer ID Installer" (each cert + its private key).
+#                           In Keychain Access select both identities, export as one .p12, then:
+#                             base64 -i certs.p12 | pbcopy
+#   MACOS_CERT_PASSWORD     the .p12 export password
+#   DEVELOPER_ID_APP        "Developer ID Application: <Name> (TEAMID)"
+#   DEVELOPER_ID_INSTALLER  "Developer ID Installer: <Name> (TEAMID)"
+#   NOTARY_KEY_P8_BASE64    base64 of the App Store Connect API key AuthKey_XXXX.p8
+#   NOTARY_KEY_ID           the API Key ID
+#   NOTARY_ISSUER_ID        the API Issuer ID (UUID)
 
 jobs:
   release:
@@ -27,8 +28,10 @@ jobs:
     env:
       DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
       DEVELOPER_ID_INSTALLER: ${{ secrets.DEVELOPER_ID_INSTALLER }}
-      # Surfaced as env so the step `if:` can gate on them — `secrets` is not a
-      # valid context inside an `if:` expression, but `env` is.
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+      # Surfaced as env so step `if:`s can gate on them — `secrets` is not a valid
+      # context inside an `if:` expression, but `env` is.
       MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
       NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
     steps:
@@ -42,79 +45,27 @@ jobs:
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
 
       # --- Signing setup (skipped automatically when secrets are absent) ----------
+      # The canonical Apple action imports the combined p12 into a temporary keychain
+      # and whitelists codesign + pkgbuild + productbuild + productsign for it — which
+      # is exactly what `sign.sh` (Developer ID Application) and `make-pkg.sh`
+      # (Developer ID Installer) need downstream. Both identities live in one p12.
       - name: Import signing certificates
         if: ${{ env.MACOS_CERT_P12_BASE64 != '' }}
-        env:
-          P12_B64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          P12_PW: ${{ secrets.MACOS_CERT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          KEYCHAIN="$RUNNER_TEMP/sod-signing.keychain-db"
-          KPW="$(openssl rand -base64 24)"
-          security create-keychain -p "$KPW" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-build
-          security unlock-keychain -p "$KPW" "$KEYCHAIN"
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
 
-          # `security import` binds only ONE private key from a multi-identity p12, so split
-          # the user's combined p12 into single-identity p12s here (match each leaf cert to
-          # its key by RSA modulus) and import each — single-identity import is reliable.
-          # System openssl (LibreSSL) reads Keychain's legacy ciphers; -legacy covers a 3.x openssl.
-          OS=/usr/bin/openssl
-          W="$RUNNER_TEMP/certsplit"; mkdir -p "$W"
-          echo -n "$P12_B64" | base64 --decode -o "$W/combined.p12"
-          "$OS" pkcs12 -legacy -in "$W/combined.p12" -passin "pass:$P12_PW" -nodes -out "$W/all.pem" 2>/dev/null \
-            || "$OS" pkcs12 -in "$W/combined.p12" -passin "pass:$P12_PW" -nodes -out "$W/all.pem"
-
-          # Carve all.pem into individual PEM blocks (drop bag-attribute lines between them).
-          n=0; cap=0
-          while IFS= read -r line; do
-            case "$line" in *"-----BEGIN"*) n=$((n+1)); cap=1 ;; esac
-            [ "$cap" = 1 ] && printf '%s\n' "$line" >> "$W/blk$n.pem"
-            case "$line" in *"-----END"*) cap=0 ;; esac
-          done < "$W/all.pem"
-
-          make_p12() {   # $1 = Application|Installer   $2 = output .p12
-            local cert="" cmod="" key="" f
-            for f in "$W"/blk*.pem; do
-              grep -q "BEGIN CERTIFICATE" "$f" || continue
-              "$OS" x509 -in "$f" -noout -subject 2>/dev/null | grep -q "Developer ID $1:" && { cert="$f"; break; }
-            done
-            [ -n "$cert" ] || { echo "no Developer ID $1 cert found in p12"; exit 1; }
-            cmod="$("$OS" x509 -in "$cert" -noout -modulus)"
-            for f in "$W"/blk*.pem; do
-              grep -q "PRIVATE KEY" "$f" || continue
-              [ "$("$OS" rsa -in "$f" -noout -modulus 2>/dev/null || true)" = "$cmod" ] && { key="$f"; break; }
-            done
-            [ -n "$key" ] || { echo "no private key matching the $1 cert"; exit 1; }
-            "$OS" pkcs12 -export -inkey "$key" -in "$cert" -passout "pass:$P12_PW" -out "$2" -legacy 2>/dev/null \
-              || "$OS" pkcs12 -export -inkey "$key" -in "$cert" -passout "pass:$P12_PW" -out "$2"
-          }
-          make_p12 Application "$W/app.p12"
-          make_p12 Installer   "$W/installer.p12"
-
-          security import "$W/app.p12" -P "$P12_PW" -t cert -f pkcs12 -k "$KEYCHAIN" -T /usr/bin/codesign
-          security import "$W/installer.p12" -P "$P12_PW" -t cert -f pkcs12 -k "$KEYCHAIN" \
-            -T /usr/bin/productbuild -T /usr/bin/productsign -T /usr/bin/pkgbuild
-          rm -rf "$W"
-
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
-          echo "identities in the signing keychain (expect 2 — Application + Installer):"
-          security find-identity -v "$KEYCHAIN"
-
-      - name: Set up notarization credentials
+      - name: Decode notarization key
         if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
         env:
           P8_B64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
-          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          ISSUER: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail
-          echo "$P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-          xcrun notarytool store-credentials "sod-notary" \
-            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$KEY_ID" --issuer "$ISSUER"
-          rm -f "$RUNNER_TEMP/AuthKey.p8"
-          echo "NOTARY_PROFILE=sod-notary" >> "$GITHUB_ENV"   # picked up by scripts/notarize.sh
+          echo "$P8_B64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          # notarize.sh reads these; passing the key to notarytool directly avoids a
+          # keychain-profile round-trip.
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
 
       # --- Build → sign → pkg → notarize (each script no-ops if its vars are unset) -
       - name: Build universal sod
@@ -151,7 +102,3 @@ jobs:
             dist/sod-*-universal.tar.gz
             dist/SHA256SUMS.txt
           if-no-files-found: ignore
-
-      - name: Clean up signing keychain
-        if: always()
-        run: security delete-keychain "$RUNNER_TEMP/sod-signing.keychain-db" 2>/dev/null || true
