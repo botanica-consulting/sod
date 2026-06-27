@@ -12,7 +12,11 @@ class Sod < Formula
   depends_on macos: :ventura          # macOS 13+
 
   def install
-    ENV["SOD_VERSION"] = version.to_s   # gen-version.sh override (no .git in a brew checkout)
+    # Sources/sod/Version.swift (defines Build.version) is generated + gitignored, so a
+    # brew checkout lacks it. Generate it before building; gen-version.sh uses SOD_VERSION
+    # when there's no .git (as in a release tarball checkout).
+    ENV["SOD_VERSION"] = version.to_s
+    system "bash", "scripts/gen-version.sh"
     system "swift", "build", "--configuration", "release",
            "--arch", "arm64", "--arch", "x86_64", "--disable-sandbox"
     bin.install ".build/apple/Products/Release/sd"
