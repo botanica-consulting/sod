@@ -27,10 +27,11 @@ permissions:
 #   NOTARY_ISSUER_ID                 the API Issuer ID (UUID)
 #
 # Optional, independent of signing:
-#   HOMEBREW_TAP_TOKEN               token (fine-grained PAT or deploy key) with
-#                                    contents:write on botanica-consulting/homebrew-tap.
+#   HOMEBREW_TAP_TOKEN               fine-grained PAT with Contents: write AND
+#                                    Pull requests: write on botanica-consulting/homebrew-tap.
 #                                    On a tag build, the source-build formula is rendered
-#                                    for the release and pushed to the tap.
+#                                    for the release and a PR to update it is opened on the
+#                                    tap (a human merges it to publish).
 
 jobs:
   release:
