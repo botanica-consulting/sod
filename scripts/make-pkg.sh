@@ -43,5 +43,9 @@ fi
 productbuild --distribution packaging/Distribution.xml --resources packaging/resources \
   --package-path dist "${SIGN_ARGS[@]}" "$OUT"
 
+# The component pkg was only an input to productbuild. Drop it so it isn't swept up
+# by the release glob (dist/sod-*.pkg) or the SHA256SUMS — only $OUT ships.
+rm -f "$COMP"
+
 echo "make-pkg: wrote $OUT"
 pkgutil --check-signature "$OUT" 2>&1 | head -5 || true
