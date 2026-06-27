@@ -45,7 +45,7 @@ exactly what to fix.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
 - **Zero conf.** Runs as an independent ssh agent, does not meddle with your other SSH key flows.
-- **Lean.** A single notarized binary, linked solely with Apple code - zero third-party dependencies.
+- **Lean.** A single notarized or self-built binary, dependant **purely** on Apple code - _zero third-party dependencies_.
 
 ## Requirements
 
