@@ -15,13 +15,13 @@
 
 </div>
 
-`sod` keeps an SSH authentication key **inside the Secure Enclave** — the private key
+**sod** keeps an SSH authentication key **inside the Secure Enclave** — the private key
 is generated there and never leaves it — and serves it to stock OpenSSH over the
 ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
 `ecdsa-sha2-nistp256`, accepted by any SSH server; no FIDO/`sk-`
 support required on the other end.
 
-`sod` has the same usage as the bog-standard OpenSSH tooling - just prefix with `sd` and the rest takes care of itself.
+**sod** has the same usage as the bog-standard OpenSSH tooling - just prefix with `sd` and the rest takes care of itself.
 
 | Command | Like | Does |
 |---|---|---|
@@ -240,6 +240,6 @@ from any release build (which prints a loud warning if you somehow build one). S
 
 [MIT](LICENSE) © Botanica Software Labs. A Botanica Software Labs product.
 
-_`sod` is provided free of charge and as-is — no warranty, and no liability on our part. See the [MIT License](LICENSE) for the full terms._
+_**sod** is provided free of charge and as-is — no warranty, and no liability on our part. See the [MIT License](LICENSE) for the full terms._
 
 <a href="https://botanica.consulting"><img src="docs/assets/botanica-square.png" width="64" alt="Botanica Software Labs"></a>
