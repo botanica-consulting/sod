@@ -1,6 +1,10 @@
 <div align="center">
 
-<img src="docs/assets/sod-logo.png" width="170" alt="sod logo — a patch of grass on a soil block"/>
+<a href="https://botanica.consulting"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/botanica-software-labs-light.png"><img src="docs/assets/botanica-software-labs.png" width="180" alt="Botanica Software Labs"></picture></a>
+
+<br><br>
+
+<img src="docs/assets/sod-logo.png" width="150" alt="sod logo — a patch of grass on a soil block"/>
 
 # sod
 
@@ -216,4 +220,4 @@ from any release build (which prints a loud warning if you somehow build one). S
 
 [MIT](LICENSE) © Botanica Software Labs. A Botanica Software Labs product.
 
-<a href="https://botanica.consulting"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/botanica-software-labs-light.png"><img src="docs/assets/botanica-software-labs.png" width="220" alt="Botanica Software Labs"></picture></a>
+<a href="https://botanica.consulting"><img src="docs/assets/botanica-square.png" width="64" alt="Botanica Software Labs"></a>
