@@ -10,8 +10,10 @@ class Sod < Formula
   license "MIT"
   head "https://github.com/botanica-consulting/sod.git", branch: "main"
 
-  depends_on xcode: ["15.0", :build]
   depends_on macos: :ventura          # macOS 13+
+  # No `depends_on xcode`: a single-arch source build needs only the Command Line Tools.
+  # (A universal `swift build --arch …` would require full Xcode/xcbuild; brew compiles
+  # locally for THIS machine, so single-arch is correct. The distributed .pkg stays universal.)
 
   def install
     # Sources/sod/Version.swift (defines Build.version) is generated + gitignored, so a
@@ -19,9 +21,8 @@ class Sod < Formula
     # when there's no .git (as in a release tarball checkout).
     ENV["SOD_VERSION"] = version.to_s
     system "bash", "scripts/gen-version.sh"
-    system "swift", "build", "--configuration", "release",
-           "--arch", "arm64", "--arch", "x86_64", "--disable-sandbox"
-    bin.install ".build/apple/Products/Release/sd"
+    system "swift", "build", "--configuration", "release", "--disable-sandbox"
+    bin.install ".build/release/sd"
     man1.install "man/sd.1"
   end
 
