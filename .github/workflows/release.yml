@@ -56,6 +56,20 @@ jobs:
           p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
 
+      # TEMPORARY one-shot probe: which identities actually landed in the keychain?
+      # `find-identity -v` (no policy) shows codesigning ID s; `-p basic` shows ALL
+      # identities incl. Developer ID Installer. Tells us if the Installer key bound at
+      # all, vs. a DEVELOPER_ID_INSTALLER name mismatch. Remove once .pkg signing works.
+      - name: List signing identities (diagnostic)
+        if: ${{ env.MACOS_CERT_P12_BASE64 != '' }}
+        run: |
+          echo "=== search list ==="
+          security list-keychains -d user
+          echo "=== find-identity -v  (codesigning) ==="
+          security find-identity -v || true
+          echo "=== find-identity -v -p basic  (ALL identities; installer shows here) ==="
+          security find-identity -v -p basic || true
+
       - name: Decode notarization key
         if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
         env:
