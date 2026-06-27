@@ -2,8 +2,6 @@
 
 <a href="https://botanica.consulting"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/botanica-software-labs-light.png"><img src="docs/assets/botanica-software-labs.png" width="180" alt="Botanica Software Labs"></picture></a>
 
-<br><br>
-
 <img src="docs/assets/sod-logo.png" width="150" alt="sod logo — a patch of grass on a soil block"/>
 
 # sod
@@ -219,5 +217,7 @@ from any release build (which prints a loud warning if you somehow build one). S
 ## License
 
 [MIT](LICENSE) © Botanica Software Labs. A Botanica Software Labs product.
+
+_`sod` is provided free of charge and as-is — no warranty, and no liability on our part. See the [MIT License](LICENSE) for the full terms._
 
 <a href="https://botanica.consulting"><img src="docs/assets/botanica-square.png" width="64" alt="Botanica Software Labs"></a>
