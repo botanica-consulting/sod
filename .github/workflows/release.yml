@@ -55,8 +55,9 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-build
           security unlock-keychain -p "$KPW" "$KEYCHAIN"
           echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/certs.p12"
-          security import "$RUNNER_TEMP/certs.p12" -P "$P12_PW" -f pkcs12 \
-            -k "$KEYCHAIN" -T /usr/bin/codesign -T /usr/bin/productbuild
+          # -A (allow any app on this throwaway keychain) imports BOTH identities;
+          # multiple -T flags can silently import only the first id from a multi-id p12.
+          security import "$RUNNER_TEMP/certs.p12" -P "$P12_PW" -f pkcs12 -k "$KEYCHAIN" -A
           rm -f "$RUNNER_TEMP/certs.p12"
           # Add our keychain to the search list and allow non-interactive signing.
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
