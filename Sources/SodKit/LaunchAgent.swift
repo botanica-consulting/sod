@@ -16,7 +16,8 @@ enum LaunchAgentManager {
     }
 
     /// launchd runs the agent in the FOREGROUND (`-d`) and owns its lifecycle; the
-    /// self-detaching `--daemon` path is NOT used here.
+    /// self-detaching `--daemon` path is NOT used here. No key is named here: the agent
+    /// always serves the canonical default key ~/.ssh/id_sod on its own (see `runListen`).
     static func plist(sodPath: String, socketPath: String) -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>

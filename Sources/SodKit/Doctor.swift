@@ -145,7 +145,11 @@ public struct Doctor: ParsableCommand {
         if live {
             if let ids = agentIdentities(sock: sock) {
                 if ids.isEmpty {
-                    r.warn("Keys loaded in agent", "the agent has no identities", hint: "load your key:  sd ssh-add")
+                    r.warn(
+                        "Keys loaded in agent", "the agent has no identities",
+                        hint: fm.fileExists(atPath: keyPath)
+                            ? "id_sod was dropped this session — restart the agent, or re-add:  sd ssh-add"
+                            : "the agent auto-serves id_sod once it exists — create it:  sd ssh-keygen")
                 } else if idSodLoaded(pubPath: pubPath, ids: ids) {
                     r.pass("Keys loaded in agent", "\(count(ids.count, "identity", "identities")) (incl. id_sod)")
                 } else {

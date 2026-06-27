@@ -57,6 +57,15 @@ public final class AgentState {
         return true
     }
 
+    /// Retain a provider path unconditionally — no existence check — so it is re-resolved
+    /// on every request. Used to always offer the canonical key ~/.ssh/id_sod: it shows up
+    /// in the agent as soon as the file exists, and can still be dropped at runtime with
+    /// `ssh-add -d`/`-D` (until the agent restarts and offers it again).
+    public func alwaysOffer(_ path: String) {
+        let abs = absolute(path)
+        if !providers.contains(abs) { providers.append(abs) }
+    }
+
     @discardableResult
     public func remove(_ path: String) -> Bool {
         let abs = absolute(path)
@@ -202,6 +211,9 @@ private func runListen(socketPath: String, providers: [String], detach: Bool) ->
     let backend = Backends.active()
     let state = AgentState(backend: backend)
     for p in providers where !state.add(p) { elog("warning: no sod handle at \(p)") }
+    // The default key is canonical: always serve ~/.ssh/id_sod, resolved per request so it
+    // appears as soon as it exists. Drop it for the session with `sd ssh-add -d`/`-D`.
+    state.alwaysOffer(expandTilde("~/.ssh/id_sod"))
 
     let server = UnixSocketServer(path: socketPath)
     do { try server.bindAndListen() } catch { errExit("\(error)") }
@@ -212,7 +224,7 @@ private func runListen(socketPath: String, providers: [String], detach: Bool) ->
     elog(
         "listening on \(socketPath)  backend: \(backend.isMock ? "MOCK (no Touch ID)" : "Secure Enclave (Touch ID on sign)")"
     )
-    elog("load a key:  sd ssh-add <keyfile>")
+    elog("serving ~/.ssh/id_sod automatically; load more with:  sd ssh-add <keyfile>")
     server.acceptLoop { serve($0, state: state) }
     exit(0)
 }
@@ -247,9 +259,10 @@ public struct Agent: ParsableCommand {
 
                 eval "$(sd ssh-agent)"
 
-            Then load a key with `sd ssh-add` and use `ssh` as usual; Touch ID is
-            requested on each signature. Handle files or directories given as arguments
-            are preloaded when the agent starts.
+            The default key ~/.ssh/id_sod is served automatically (no `sd ssh-add` needed);
+            drop it with `sd ssh-add -d`/`-D`. Use `ssh` as usual; Touch ID is requested on
+            each signature. Extra handle files or directories given as arguments are also
+            loaded when the agent starts.
             """
     )
 

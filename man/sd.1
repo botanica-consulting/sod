@@ -60,6 +60,16 @@ With no options it ensures an agent is running (reusing one if present) and
 prints shell commands to set
 .Ev SSH_AUTH_SOCK :
 .Dl eval \&"$(sd ssh-agent)\&"
+.Pp
+The default key
+.Pa ~/.ssh/id_sod
+is served automatically; no
+.Cm sd ssh-add
+is needed.
+Drop it for the session with
+.Fl d
+or
+.Fl D .
 .Bl -tag -width "-a socket"
 .It Fl a Ar socket
 Socket path (default
@@ -97,10 +107,22 @@ or full public keys
 .Pq Fl L .
 .El
 .Ss sd install
-Install a per-user LaunchAgent that runs
+Set up everything in one step: if the default key
+.Pa ~/.ssh/id_sod
+does not exist, offer to create it, then install a per-user LaunchAgent
+that runs
 .Cm sd ssh-agent
-on a fixed socket at login (restarting it if it exits), then print the single
-line to add to your shell startup file so every shell finds it.
+on a fixed socket at login (restarting it if it exits).
+The agent serves
+.Pa ~/.ssh/id_sod
+automatically, so no
+.Cm sd ssh-add
+is required.
+Finally it prints the
+.Ic echo
+and
+.Ic exec
+commands to point your shell at the agent.
 This is the recommended setup after installing
 .Nm ;
 it never edits your shell files itself.

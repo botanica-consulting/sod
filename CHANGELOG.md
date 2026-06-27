@@ -11,11 +11,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (built on swift-argument-parser), replacing the separate `se-ssh-*` executables.
 - `sd ssh-keygen -y` to reprint a public-key line from a handle; faithful
   `ssh-keygen`-style output with a SHA256 fingerprint.
-- `sd ssh-agent`: persistent + reuse model on a fixed `~/.ssh/sod-agent.sock`,
+- `sd ssh-agent`: persistent + reuse model on a fixed `~/.ssh/sod-agent.sock`;
+  serves the default `~/.ssh/id_sod` automatically (drop it with `sd ssh-add -d`/`-D`);
   `-d` foreground mode, `-k` to kill, and faithful `-s`/`-c` shell dialects.
 - `sd install` / `sd uninstall`: one-step login setup — installs a per-user
-  LaunchAgent and prints the shell-specific `SSH_AUTH_SOCK` line to paste into
-  your startup file (detects zsh/bash/fish/csh).
+  LaunchAgent, offers to create `~/.ssh/id_sod` if missing, and prints an
+  `echo … >> <rcfile>` command plus `exec $SHELL` to point your shell at the agent
+  (detects zsh/bash/fish/csh).
 - `sd ssh-add`: loads `~/.ssh/id_sod` by default; `-D` removes all keys.
 - `sd doctor`: a read-only health check of your setup — Secure Enclave availability,
   the default key, the login agent (installed + loaded), the live socket and the key
