@@ -54,27 +54,53 @@ jobs:
           security create-keychain -p "$KPW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-build
           security unlock-keychain -p "$KPW" "$KEYCHAIN"
-          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/orig.p12"
-          # `security import` drops a private key from this multi-identity Keychain p12
-          # (3 certs import, but only 1 identity forms). Convert to a PEM sequence with the
-          # system openssl (LibreSSL handles Keychain's RC2) and import that — PEM import
-          # pairs every key to its cert and loads BOTH identities.
-          /usr/bin/openssl pkcs12 -legacy -in "$RUNNER_TEMP/orig.p12" -passin "pass:$P12_PW" -nodes \
-            -out "$RUNNER_TEMP/all.pem" 2>/dev/null \
-            || /usr/bin/openssl pkcs12 -in "$RUNNER_TEMP/orig.p12" -passin "pass:$P12_PW" -nodes -out "$RUNNER_TEMP/all.pem"
-          security import "$RUNNER_TEMP/all.pem" -k "$KEYCHAIN" -A
-          rm -f "$RUNNER_TEMP/orig.p12" "$RUNNER_TEMP/all.pem"
-          # Add our keychain to the search list and allow non-interactive signing.
+
+          # `security import` binds only ONE private key from a multi-identity p12, so split
+          # the user's combined p12 into single-identity p12s here (match each leaf cert to
+          # its key by RSA modulus) and import each — single-identity import is reliable.
+          # System openssl (LibreSSL) reads Keychain's legacy ciphers; -legacy covers a 3.x openssl.
+          OS=/usr/bin/openssl
+          W="$RUNNER_TEMP/certsplit"; mkdir -p "$W"
+          echo -n "$P12_B64" | base64 --decode -o "$W/combined.p12"
+          "$OS" pkcs12 -legacy -in "$W/combined.p12" -passin "pass:$P12_PW" -nodes -out "$W/all.pem" 2>/dev/null \
+            || "$OS" pkcs12 -in "$W/combined.p12" -passin "pass:$P12_PW" -nodes -out "$W/all.pem"
+
+          # Carve all.pem into individual PEM blocks (drop bag-attribute lines between them).
+          n=0; cap=0
+          while IFS= read -r line; do
+            case "$line" in *"-----BEGIN"*) n=$((n+1)); cap=1 ;; esac
+            [ "$cap" = 1 ] && printf '%s\n' "$line" >> "$W/blk$n.pem"
+            case "$line" in *"-----END"*) cap=0 ;; esac
+          done < "$W/all.pem"
+
+          make_p12() {   # $1 = Application|Installer   $2 = output .p12
+            local cert="" cmod="" key="" f
+            for f in "$W"/blk*.pem; do
+              grep -q "BEGIN CERTIFICATE" "$f" || continue
+              "$OS" x509 -in "$f" -noout -subject 2>/dev/null | grep -q "Developer ID $1:" && { cert="$f"; break; }
+            done
+            [ -n "$cert" ] || { echo "no Developer ID $1 cert found in p12"; exit 1; }
+            cmod="$("$OS" x509 -in "$cert" -noout -modulus)"
+            for f in "$W"/blk*.pem; do
+              grep -q "PRIVATE KEY" "$f" || continue
+              [ "$("$OS" rsa -in "$f" -noout -modulus 2>/dev/null || true)" = "$cmod" ] && { key="$f"; break; }
+            done
+            [ -n "$key" ] || { echo "no private key matching the $1 cert"; exit 1; }
+            "$OS" pkcs12 -export -inkey "$key" -in "$cert" -passout "pass:$P12_PW" -out "$2" -legacy 2>/dev/null \
+              || "$OS" pkcs12 -export -inkey "$key" -in "$cert" -passout "pass:$P12_PW" -out "$2"
+          }
+          make_p12 Application "$W/app.p12"
+          make_p12 Installer   "$W/installer.p12"
+
+          security import "$W/app.p12" -P "$P12_PW" -t cert -f pkcs12 -k "$KEYCHAIN" -T /usr/bin/codesign
+          security import "$W/installer.p12" -P "$P12_PW" -t cert -f pkcs12 -k "$KEYCHAIN" \
+            -T /usr/bin/productbuild -T /usr/bin/productsign -T /usr/bin/pkgbuild
+          rm -rf "$W"
+
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
-          echo "imported codesigning identities:"
-          security find-identity -v -p codesigning "$KEYCHAIN"
-          echo "VALID identities (-v):"
+          echo "identities in the signing keychain (expect 2 — Application + Installer):"
           security find-identity -v "$KEYCHAIN"
-          echo "ALL identities incl. INVALID (no -v):"
-          security find-identity "$KEYCHAIN" || true
-          echo "certificate count in keychain:"
-          security find-certificate -a "$KEYCHAIN" 2>/dev/null | grep -c "labl" || true
 
       - name: Set up notarization credentials
         if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
