@@ -63,6 +63,8 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
           echo "imported codesigning identities:"
           security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "ALL identities in the signing keychain (installer is not a codesigning identity, so check here):"
+          security find-identity -v "$KEYCHAIN"
 
       - name: Set up notarization credentials
         if: ${{ env.NOTARY_KEY_P8_BASE64 != '' }}
