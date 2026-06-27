@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a distribution .pkg that installs sod to /usr/local/bin (+ its man page).
+# Build a distribution .pkg that installs the `sd` binary to /usr/local/bin (+ its man page).
 # A plain file copy — no install scripts (the LaunchAgent stays opt-in). Installer
 # signing happens only if $DEVELOPER_ID_INSTALLER is set.
 set -euo pipefail
@@ -12,13 +12,13 @@ ROOT="dist/root"
 COMP="dist/sod-component.pkg"
 OUT="dist/sod-${VERSION}.pkg"
 
-[ -x dist/sod ] || { echo "make-pkg: build first (no dist/sod — run: make universal)"; exit 1; }
+[ -x dist/sd ] || { echo "make-pkg: build first (no dist/sd — run: make universal)"; exit 1; }
 
 # Stage the payload tree.
 rm -rf "$ROOT"
 install -d "$ROOT/usr/local/bin" "$ROOT/usr/local/share/man/man1"
-install -m 0755 dist/sod  "$ROOT/usr/local/bin/sod"
-install -m 0644 man/sod.1 "$ROOT/usr/local/share/man/man1/sod.1"
+install -m 0755 dist/sd   "$ROOT/usr/local/bin/sd"
+install -m 0644 man/sd.1  "$ROOT/usr/local/share/man/man1/sd.1"
 
 # Strip extended attributes (quarantine/provenance) so pkgbuild doesn't embed
 # AppleDouble (._*) sidecar files into the payload.
@@ -42,6 +42,10 @@ fi
 
 productbuild --distribution packaging/Distribution.xml --resources packaging/resources \
   --package-path dist "${SIGN_ARGS[@]}" "$OUT"
+
+# The component pkg was only an input to productbuild. Drop it so it isn't swept up
+# by the release glob (dist/sod-*.pkg) or the SHA256SUMS — only $OUT ships.
+rm -f "$COMP"
 
 echo "make-pkg: wrote $OUT"
 pkgutil --check-signature "$OUT" 2>&1 | head -5 || true

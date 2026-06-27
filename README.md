@@ -21,16 +21,20 @@ ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
 `ecdsa-sha2-nistp256`, accepted by any SSH server; no FIDO/`sk-`
 support required on the other end.
 
-`sod` has the same usage as the bog-standard OpenSSH tooling - just prefix with `sod` and the rest takes care of itself.
+`sod` has the same usage as the bog-standard OpenSSH tooling - just prefix with `sd` and the rest takes care of itself.
 
 | Command | Like | Does |
 |---|---|---|
-| `sod ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
-| `sod ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
-| `sod ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
+| `sd ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
+| `sd ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
+| `sd ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
 
-Plus **`sod install`** — the one-step login setup: it runs the agent at every login and
-prints the single line to add to your shell startup file (`sod uninstall` reverses it).
+Plus **`sd install`** — the one-step login setup: it runs the agent at every login and
+prints the single line to add to your shell startup file (`sd uninstall` reverses it).
+
+And **`sd doctor`** — a read-only health check of your whole setup (Secure Enclave, the
+default key, the login agent, the live socket, and your shell wiring) that tells you
+exactly what to fix.
 
 ## Why sod
 
@@ -51,38 +55,56 @@ prints the single line to add to your shell startup file (`sod uninstall` revers
 
 ## Install
 
+Two ways to get the `sd` binary — pick whichever suits you. **Either way, the one-time
+setup afterward is the same: `sd install` (see [Quickstart](#quickstart)).**
+
 ### Homebrew
 
 ```sh
 brew install botanica-consulting/tap/sod
 ```
 
-### Packaged installer
+Builds from source, so it needs a Swift toolchain — the Xcode **Command Line Tools**
+(`xcode-select --install`), *not* the full Xcode app.
+
+### Prebuilt installer — no toolchain
 
 Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
-and open it. It installs `sod` to `/usr/local/bin` and its man page — nothing else.
+and open it. It's a **notarized, universal binary**: no Homebrew, no compiler, nothing to
+build. It copies `sd` to `/usr/local/bin` (plus its man page) and **nothing else** — it does
+not touch your shell startup files or any agent. You still run `sd install` once afterward.
 
 ### From source
 
 ```sh
 git clone https://github.com/botanica-consulting/sod && cd sod
 make install      # builds a universal binary, installs to /usr/local (sudo)
-# or just: swift build -c release   (binary at .build/release/sod)
+# or just: swift build -c release   (binary at .build/release/sd)
 ```
 
 ## Quickstart
 
+These steps are the same no matter how you installed `sd` — Homebrew and the `.pkg` both
+land you here, and **`sd install` is the shared setup step.**
+
 ```sh
-brew install botanica-consulting/tap/sod
-sod ssh-keygen          # create ~/.ssh/id_sod (+ .pub); no Touch ID yet
-sod install             # run the agent at login + print the line for your shell startup file
-sod ssh-add             # load ~/.ssh/id_sod into the agent
+sd ssh-keygen          # create the Secure-Enclave key (~/.ssh/id_sod + .pub); no Touch ID yet
+sd install             # install the login agent + PRINT the SSH_AUTH_SOCK line for your shell
+sd ssh-add             # load ~/.ssh/id_sod into the agent
+sd doctor              # verify it's all wired up (key, agent, login item, shell)
 ```
 
-`sod install` prints the exact `SSH_AUTH_SOCK` line for your shell — paste it into the
-startup file it names, open a new shell, and `ssh` will use sod (Touch ID on every
-connection). Authorize the key on your server first with
-`ssh-copy-id -i ~/.ssh/id_sod.pub user@host`.
+`sd install` installs a per-user LaunchAgent — the agent then runs at every login on the
+fixed socket `~/.ssh/sod-agent.sock` — and **prints** the exact `SSH_AUTH_SOCK` line for your
+shell. It never edits your startup file for you: paste the one line it shows, open a new
+shell, and `ssh` will use sod with Touch ID on every connection. (`sd uninstall` reverses it.)
+
+Authorize the key on your server first:
+
+```sh
+ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+ssh user@host          # Touch ID on connect
+```
 
 ## Advanced usage
 
@@ -90,33 +112,33 @@ connection). Authorize the key on your server first with
 `id_ecdsa`/`id_ed25519`. Or put it anywhere:
 
 ```sh
-sod ssh-keygen                              # -> ~/.ssh/id_sod (+ id_sod.pub)
-sod ssh-keygen -f ~/keys/work -C "me@work"  # -> ~/keys/work  (+ work.pub)
-sod ssh-keygen -y -f ~/keys/work            # reprint the .pub line from a handle
+sd ssh-keygen                              # -> ~/.ssh/id_sod (+ id_sod.pub)
+sd ssh-keygen -f ~/keys/work -C "me@work"  # -> ~/keys/work  (+ work.pub)
+sd ssh-keygen -y -f ~/keys/work            # reprint the .pub line from a handle
 ```
 
-**Run the agent.** `sod install` is the recommended path: it installs a per-user
+**Run the agent.** `sd install` is the recommended path: it installs a per-user
 LaunchAgent that keeps the agent on the fixed socket `~/.ssh/sod-agent.sock` across
-logins, then prints the one line to add to your shell startup file. `sod uninstall`
+logins, then prints the one line to add to your shell startup file. `sd uninstall`
 reverses it.
 
 ```sh
-sod install                    # agent at login + the SSH_AUTH_SOCK line for your shell
-sod uninstall                  # remove the LaunchAgent
+sd install                    # agent at login + the SSH_AUTH_SOCK line for your shell
+sd uninstall                  # remove the LaunchAgent
 ```
 
 Prefer a throwaway agent in the current shell instead (no LaunchAgent)? Use the faithful
 `ssh-agent` form:
 
 ```sh
-eval "$(sod ssh-agent)"        # sh/zsh/bash/csh/fish auto-detected (-s / -c to force)
-sod ssh-agent -k               # stop it
+eval "$(sd ssh-agent)"        # sh/zsh/bash/csh/fish auto-detected (-s / -c to force)
+sd ssh-agent -k               # stop it
 ```
 
 **Point `ssh` at the agent.** `SSH_AUTH_SOCK` names a *single* agent, so you choose
 whether sod is your only agent or coexists with another (1Password, Secretive, …):
 
-*Use sod everywhere* — add the line `sod install` printed to your shell startup file:
+*Use sod everywhere* — add the line `sd install` printed to your shell startup file:
 
 | shell | file | line |
 |---|---|---|
@@ -141,10 +163,10 @@ Host prod
 **Load / list / unload keys** (no PIN prompt, unlike stock `ssh-add -s`):
 
 ```sh
-sod ssh-add                    # load the default ~/.ssh/id_sod
-sod ssh-add ~/keys/work        # load a specific handle
-sod ssh-add -l                 # list fingerprints   (-L for full public keys)
-sod ssh-add -d ~/keys/work     # unload one          (-D to unload all)
+sd ssh-add                    # load the default ~/.ssh/id_sod
+sd ssh-add ~/keys/work        # load a specific handle
+sd ssh-add -l                 # list fingerprints   (-L for full public keys)
+sd ssh-add -d ~/keys/work     # unload one          (-D to unload all)
 ```
 
 **Authorize and connect.** Put the `.pub` on the server, then connect:
@@ -154,7 +176,7 @@ ssh-copy-id -i ~/.ssh/id_sod.pub user@host
 ssh user@host                  # Touch ID on connect
 ```
 
-**Interop with stock tooling.** `sod ssh-add` is just a convenience client;
+**Interop with stock tooling.** `sd ssh-add` is just a convenience client;
 the agent also speaks to stock `ssh-add`, which loads Secure-Enclave handles via its
 smartcard messages:
 
@@ -166,11 +188,11 @@ ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ## How it works
 
 ```
-sod ssh-keygen ──► Secure Enclave generates a P-256 key
+sd ssh-keygen ──► Secure Enclave generates a P-256 key
                    └─► ~/.ssh/id_sod      (opaque handle, no usable secret)
                        ~/.ssh/id_sod.pub  (ecdsa-sha2-nistp256 ...)
 
-ssh ──unix socket──► sod ssh-agent ──► Secure Enclave signs  ──► Touch ID
+ssh ──unix socket──► sd ssh-agent ──► Secure Enclave signs  ──► Touch ID
    (ssh-agent proto)  (holds handles)    (private key never leaves the SE)
 ```
 

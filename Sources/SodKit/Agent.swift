@@ -7,7 +7,7 @@ import SSHWire
 import Darwin
 #endif
 
-private let tool = "sod ssh-agent"
+private let tool = "sd ssh-agent"
 private let maxMessage = SSHWire.maxAgentMessage  // bound allocations against a hostile length prefix
 
 private func elog(_ msg: String) { FileHandle.standardError.write(Data("\(tool): \(msg)\n".utf8)) }
@@ -150,7 +150,7 @@ private func emitEnv(socketPath: String, dialect: String) {
 private func spawnDaemon(socketPath: String, providers: [String]) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: executablePath())
-    // Re-enter via the subcommand: `sod ssh-agent --daemon -a <sock> [providers...]`.
+    // Re-enter via the subcommand: `sd ssh-agent --daemon -a <sock> [providers...]`.
     p.arguments = ["ssh-agent", "--daemon", "-a", socketPath] + providers
     p.standardInput = FileHandle.nullDevice
     p.standardOutput = FileHandle.nullDevice
@@ -212,7 +212,7 @@ private func runListen(socketPath: String, providers: [String], detach: Bool) ->
     elog(
         "listening on \(socketPath)  backend: \(backend.isMock ? "MOCK (no Touch ID)" : "Secure Enclave (Touch ID on sign)")"
     )
-    elog("load a key:  sod ssh-add <keyfile>")
+    elog("load a key:  sd ssh-add <keyfile>")
     server.acceptLoop { serve($0, state: state) }
     exit(0)
 }
@@ -228,7 +228,7 @@ private func ensureAndEmit(socketPath: String, providers: [String], dialect: Str
     } else {
         elog("reusing agent already on \(socketPath)")
         if !providers.isEmpty {
-            elog("note: agent already running — preload args ignored; load with sod ssh-add")
+            elog("note: agent already running — preload args ignored; load with sd ssh-add")
         }
     }
     emitEnv(socketPath: socketPath, dialect: dialect)
@@ -245,9 +245,9 @@ public struct Agent: ParsableCommand {
             With no options, ensures an agent is running on the socket (reusing one if
             present) and prints shell commands that set SSH_AUTH_SOCK:
 
-                eval "$(sod ssh-agent)"
+                eval "$(sd ssh-agent)"
 
-            Then load a key with `sod ssh-add` and use `ssh` as usual; Touch ID is
+            Then load a key with `sd ssh-add` and use `ssh` as usual; Touch ID is
             requested on each signature. Handle files or directories given as arguments
             are preloaded when the agent starts.
             """

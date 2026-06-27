@@ -1,8 +1,8 @@
 .Dd June 26, 2026
-.Dt SOD 1
+.Dt SD 1
 .Os
 .Sh NAME
-.Nm sod
+.Nm sd
 .Nd Secure-Enclave-backed SSH key, agent, and loader
 .Sh SYNOPSIS
 .Nm
@@ -27,6 +27,8 @@
 .Op Fl a Ar socket
 .Nm
 .Cm uninstall
+.Nm
+.Cm doctor
 .Sh DESCRIPTION
 .Nm
 keeps an SSH authentication key in the Secure Enclave and serves it to stock
@@ -34,7 +36,7 @@ OpenSSH over the ssh-agent protocol.
 The private key is generated inside the Secure Enclave and never leaves it;
 Touch ID is required for every signature.
 The commands mirror the OpenSSH tools they imitate.
-.Ss sod ssh-keygen
+.Ss sd ssh-keygen
 Create a Secure-Enclave P-256 key: an opaque handle file plus a standard
 .Pa .pub
 public-key line.
@@ -52,12 +54,12 @@ is accepted (the Secure Enclave is P-256 only).
 .It Fl y
 Read a handle file and print its public-key line.
 .El
-.Ss sod ssh-agent
+.Ss sd ssh-agent
 Run the agent on a unix socket.
 With no options it ensures an agent is running (reusing one if present) and
 prints shell commands to set
 .Ev SSH_AUTH_SOCK :
-.Dl eval \&"$(sod ssh-agent)\&"
+.Dl eval \&"$(sd ssh-agent)\&"
 .Bl -tag -width "-a socket"
 .It Fl a Ar socket
 Socket path (default
@@ -72,9 +74,9 @@ Kill the agent running on the socket.
 .El
 .Pp
 To run the agent automatically at login, see
-.Cm sod install
+.Cm sd install
 below.
-.Ss sod ssh-add
+.Ss sd ssh-add
 Load, unload, or list keys.
 With no arguments, loads the default key
 .Pa ~/.ssh/id_sod .
@@ -94,9 +96,9 @@ List loaded keys as fingerprints
 or full public keys
 .Pq Fl L .
 .El
-.Ss sod install
+.Ss sd install
 Install a per-user LaunchAgent that runs
-.Cm sod ssh-agent
+.Cm sd ssh-agent
 on a fixed socket at login (restarting it if it exits), then print the single
 line to add to your shell startup file so every shell finds it.
 This is the recommended setup after installing
@@ -116,9 +118,19 @@ line and instead set
 .Cm IdentityAgent ~/.ssh/sod-agent.sock
 per-host in
 .Xr ssh_config 5 .
-.Ss sod uninstall
+.Ss sd uninstall
 Remove the LaunchAgent installed by
-.Cm sod install .
+.Cm sd install .
+.Ss sd doctor
+Check the health of your setup and print actionable hints; read-only, it
+inspects but never changes anything.
+It reports whether the Secure Enclave is available, the default key
+.Pa ~/.ssh/id_sod
+exists, the login agent is installed and loaded, the agent socket is live and
+holds your key, and whether
+.Ev SSH_AUTH_SOCK
+is set in the current shell and exported from your shell startup file.
+Exits non-zero if any check fails.
 .Sh ENVIRONMENT
 .Bl -tag -width SSH_AUTH_SOCK
 .It Ev SSH_AUTH_SOCK
@@ -138,16 +150,16 @@ Default agent socket.
 Set it up to run at login (recommended), then follow the printed instructions
 and load the key:
 .Bd -literal -offset indent
-sod ssh-keygen
-sod install
-sod ssh-add
+sd ssh-keygen
+sd install
+sd ssh-add
 .Ed
 .Pp
 Or run a throwaway agent in the current shell, load a key, and connect:
 .Bd -literal -offset indent
-sod ssh-keygen -f ~/.ssh/id_sod
-eval \&"$(sod ssh-agent)\&"
-sod ssh-add ~/.ssh/id_sod
+sd ssh-keygen -f ~/.ssh/id_sod
+eval \&"$(sd ssh-agent)\&"
+sd ssh-add ~/.ssh/id_sod
 ssh -i ~/.ssh/id_sod user@host
 .Ed
 .Sh SEE ALSO

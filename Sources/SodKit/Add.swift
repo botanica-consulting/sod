@@ -8,7 +8,7 @@ import SSHWire
 import Darwin
 #endif
 
-private let tool = "sod ssh-add"
+private let tool = "sd ssh-add"
 private let maxMessage = SSHWire.maxAgentMessage
 
 private func elog(_ s: String) { FileHandle.standardError.write(Data("\(tool): \(s)\n".utf8)) }
@@ -24,7 +24,7 @@ private func transact(socket path: String, _ request: Data) -> (type: UInt8, pay
     guard fd >= 0 else {
         errExit(
             "cannot connect to agent at \(path) — is it running? "
-                + "(run: eval \"$(sod ssh-agent)\", or set SSH_AUTH_SOCK / pass -a)")
+                + "(run: eval \"$(sd ssh-agent)\", or set SSH_AUTH_SOCK / pass -a)")
     }
     defer { close(fd) }
     guard writeAll(fd, request) else { errExit("write to agent failed") }
