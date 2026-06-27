@@ -21,20 +21,15 @@ class Sod < Formula
     # when there's no .git (as in a release tarball checkout).
     ENV["SOD_VERSION"] = version.to_s
     system "bash", "scripts/gen-version.sh"
-    system "swift", "build", "--configuration", "release", "--disable-sandbox"
+    # Build only the `sd` product (skips compiling the sod-tests target).
+    system "swift", "build", "--configuration", "release", "--disable-sandbox", "--product", "sd"
     bin.install ".build/release/sd"
     man1.install "man/sd.1"
   end
 
   def caveats
     <<~EOS
-      Set sod up to run at login (it never edits your shell files — it prints the
-      line for you to paste):
-
-        sd ssh-keygen    # if you don't have a key yet
-        sd install       # run the agent at login + print the SSH_AUTH_SOCK line
-
-      Before `brew uninstall`, run `sd uninstall` to remove the login agent.
+      Run `sd install` to finish setup.
     EOS
   end
 

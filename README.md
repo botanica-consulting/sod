@@ -88,16 +88,17 @@ These steps are the same no matter how you installed `sd` — Homebrew and the `
 land you here, and **`sd install` is the shared setup step.**
 
 ```sh
-sd ssh-keygen          # create the Secure-Enclave key (~/.ssh/id_sod + .pub); no Touch ID yet
-sd install             # install the login agent + PRINT the SSH_AUTH_SOCK line for your shell
-sd ssh-add             # load ~/.ssh/id_sod into the agent
+sd install             # offers to create ~/.ssh/id_sod, runs the login agent, prints your shell line
 sd doctor              # verify it's all wired up (key, agent, login item, shell)
 ```
 
-`sd install` installs a per-user LaunchAgent — the agent then runs at every login on the
-fixed socket `~/.ssh/sod-agent.sock` — and **prints** the exact `SSH_AUTH_SOCK` line for your
-shell. It never edits your startup file for you: paste the one line it shows, open a new
-shell, and `ssh` will use sod with Touch ID on every connection. (`sd uninstall` reverses it.)
+`sd install` does the whole setup: it offers to create `~/.ssh/id_sod` if you don't have one,
+then installs a per-user LaunchAgent that runs at every login on the fixed socket
+`~/.ssh/sod-agent.sock`. The agent **serves `~/.ssh/id_sod` automatically** — no `sd ssh-add`
+needed; it shows up in `sd ssh-add -L` and you can drop it with `sd ssh-add -d`/`-D`. Finally,
+`sd install` **prints** an `echo … >> <rcfile>` command plus `exec $SHELL` to point your shell
+at the agent — it never edits your startup file for you; you run the printed `echo`. After that,
+`ssh` uses sod with Touch ID on every connection. (`sd uninstall` reverses it.)
 
 Authorize the key on your server first:
 
@@ -119,8 +120,8 @@ sd ssh-keygen -y -f ~/keys/work            # reprint the .pub line from a handle
 
 **Run the agent.** `sd install` is the recommended path: it installs a per-user
 LaunchAgent that keeps the agent on the fixed socket `~/.ssh/sod-agent.sock` across
-logins, then prints the one line to add to your shell startup file. `sd uninstall`
-reverses it.
+logins (serving `~/.ssh/id_sod` automatically), then prints the commands to point your
+shell at it. `sd uninstall` reverses it.
 
 ```sh
 sd install                    # agent at login + the SSH_AUTH_SOCK line for your shell
@@ -160,13 +161,13 @@ Host prod
     IdentitiesOnly yes                   # …and offer only it
 ```
 
-**Load / list / unload keys** (no PIN prompt, unlike stock `ssh-add -s`):
+**Load / list / unload keys** (the agent already serves `~/.ssh/id_sod`; these manage
+*extra* keys or drop the default — no PIN prompt, unlike stock `ssh-add -s`):
 
 ```sh
-sd ssh-add                    # load the default ~/.ssh/id_sod
-sd ssh-add ~/keys/work        # load a specific handle
+sd ssh-add ~/keys/work        # load an additional handle
 sd ssh-add -l                 # list fingerprints   (-L for full public keys)
-sd ssh-add -d ~/keys/work     # unload one          (-D to unload all)
+sd ssh-add -d ~/keys/work     # unload one          (-D to unload all, incl. id_sod)
 ```
 
 **Authorize and connect.** Put the `.pub` on the server, then connect:
