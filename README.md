@@ -11,7 +11,7 @@
 [![CI](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml/badge.svg)](https://github.com/botanica-consulting/sod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#requirements)
-[![Swift 6](https://img.shields.io/badge/Swift-6-orange?logo=swift)](Package.swift)
+[![Swift 6](https://img.shields.io/badge/Swift-6-orange?logo=swift)](Package.swift) <img src="docs/assets/touchid-fp.png" height="20" alt="Touch ID">
 
 </div>
 
@@ -20,6 +20,12 @@ is generated there and never leaves it — and serves it to stock OpenSSH over t
 ssh-agent protocol. **Touch ID gates every signature.** The key is a plain
 `ecdsa-sha2-nistp256`, accepted by any SSH server; no FIDO/`sk-`
 support required on the other end.
+
+<div align="center">
+
+<img src="docs/assets/sod-demo.svg" width="700" alt="sod in action: sd install, wire up the socket, then ssh into GitHub — authenticated with Touch ID"/>
+
+</div>
 
 **sod** has the same usage as the bog-standard OpenSSH tooling - just prefix with `sd` and the rest takes care of itself.
 
