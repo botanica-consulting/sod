@@ -34,6 +34,7 @@ support required on the other end.
 | `sd ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
 | `sd ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
 | `sd ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
+| `sd ssh-copy-id` | `ssh-copy-id` | authorize your key on a server — defaults `-i ~/.ssh/id_sod.pub` |
 
 Plus **`sd install`** — the one-step login setup: it runs the agent at every login and
 prints the single line to add to your shell startup file (`sd uninstall` reverses it).
@@ -109,7 +110,7 @@ at the agent — it never edits your startup file for you; you run the printed `
 Authorize the key on your server first:
 
 ```sh
-ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+sd ssh-copy-id user@host       # appends ~/.ssh/id_sod.pub to the server
 ssh user@host          # Touch ID on connect
 ```
 
@@ -179,7 +180,7 @@ sd ssh-add -d ~/keys/work     # unload one          (-D to unload all, incl. id_
 **Authorize and connect.** Put the `.pub` on the server, then connect:
 
 ```sh
-ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+sd ssh-copy-id user@host       # appends ~/.ssh/id_sod.pub to the server
 ssh user@host                  # Touch ID on connect
 ```
 
