@@ -77,8 +77,9 @@ Builds from source, so it needs a Swift toolchain — the Xcode **Command Line T
 
 Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
 and open it. It's a **notarized, universal binary**: no Homebrew, no compiler, nothing to
-build. It copies `sd` to `/usr/local/bin` (plus its man page) and **nothing else** — it does
-not touch your shell startup files or any agent. You still run `sd install` once afterward.
+build. It copies `sd` to `/usr/local/bin` (plus its man page and shell completions) and
+**nothing else** — it does not touch your shell startup files or any agent. You still run
+`sd install` once afterward.
 
 ### From source
 
@@ -86,6 +87,17 @@ not touch your shell startup files or any agent. You still run `sd install` once
 git clone https://github.com/botanica-consulting/sod && cd sod
 make install      # builds a universal binary, installs to /usr/local (sudo)
 # or just: swift build -c release   (binary at .build/release/sd)
+```
+
+### Shell completions
+
+Homebrew and the `.pkg` install zsh / bash / fish completions automatically, and so does
+`make install`. After a bare `swift build`, generate them yourself:
+
+```sh
+sd --generate-completion-script zsh  > /usr/local/share/zsh/site-functions/_sd
+sd --generate-completion-script bash > /usr/local/etc/bash_completion.d/sd
+sd --generate-completion-script fish > /usr/local/share/fish/vendor_completions.d/sd.fish
 ```
 
 ## Quickstart
