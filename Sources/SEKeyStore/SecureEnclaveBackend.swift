@@ -1,4 +1,5 @@
 import CryptoKit
+import Dispatch
 import Foundation
 import LocalAuthentication
 import Security
@@ -52,12 +53,47 @@ public struct SecureEnclaveBackend: KeyBackend {
         }
     }
 
+    /// Shown on the Touch ID sheet for every signature, in place of the bare system default.
+    private static let signReason = "Authorize a signature with your sod Secure-Enclave key"
+
     public func sign(handle: Data, data: Data) throws -> Data {
         do {
-            let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: handle)
-            return try key.signature(for: data).rawRepresentation  // Touch ID fires here
+            // Authenticate once with our own prompt text, then hand the already-authenticated
+            // context to the signing operation so it doesn't prompt a second time. A fresh
+            // context per call (and no reuse duration) keeps Touch ID on *every* signature. The
+            // key still carries .userPresence, so this can only reuse a satisfied prompt — never
+            // bypass presence.
+            let context = LAContext()
+            try authenticatePresence(context)
+            let key = try SecureEnclave.P256.Signing.PrivateKey(
+                dataRepresentation: handle, authenticationContext: context)
+            return try key.signature(for: data).rawRepresentation
+        } catch let e as KeyBackendError {
+            throw e
         } catch {
             throw KeyBackendError.sign("\(error)")
         }
     }
+
+    /// Block until Touch ID (passcode fallback) authorizes key-signing for `context`, showing our
+    /// own reason string. Throws on cancel/failure so a refused prompt never yields a signature.
+    private func authenticatePresence(_ context: LAContext) throws {
+        let ac = try accessControl()
+        let sem = DispatchSemaphore(value: 0)
+        let box = AuthResultBox()
+        context.evaluateAccessControl(
+            ac, operation: .useKeySign, localizedReason: SecureEnclaveBackend.signReason
+        ) { _, error in
+            box.error = error
+            sem.signal()
+        }
+        sem.wait()  // happens-after the reply, so the read below sees the stored error
+        if let error = box.error { throw error }
+    }
+}
+
+/// One-shot carrier for the auth reply across the (Sendable) `evaluateAccessControl` callback.
+/// Safe because the `DispatchSemaphore` orders the write (in the callback) before the read.
+private final class AuthResultBox: @unchecked Sendable {
+    var error: Error?
 }
