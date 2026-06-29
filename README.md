@@ -192,22 +192,77 @@ ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the S
 ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ```
 
-**Agent forwarding is refused by default.** Forwarding a presence-gated key to a remote host
-is a classic ssh-agent footgun: a compromised remote can ask your agent to sign. So when a
-connection is being **forwarded** (`ssh -A` / `ForwardAgent yes`), sod presents an *empty*
-agent and refuses to sign — a remote can neither use nor enumerate your Secure-Enclave key.
-This is detected from the standard `session-bind@openssh.com` flag (OpenSSH ≥ 8.9), so it
-distinguishes forwarding precisely:
+### Agent forwarding (`ssh -A`)
+
+**sod refuses to be a forwarded agent by default, and that's deliberate.** Agent forwarding
+exports your agent to a remote host: anything on that host (or anyone who has compromised it)
+can quietly ask *your* agent to sign — including your presence-gated Secure-Enclave key. The
+Touch ID prompt is some protection, but a mistimed tap on a request you didn't initiate still
+hands a remote a signature. It's the classic ssh-agent footgun, and a hardware-backed key is
+exactly the key you least want reachable from a box you don't control.
+
+So when a connection is **forwarded** (`ssh -A` / `ForwardAgent yes`), sod presents an *empty*
+agent and refuses to sign — a remote can neither use nor even enumerate your key. It tells
+forwarding apart precisely, using the standard `session-bind@openssh.com` flag (OpenSSH ≥ 8.9):
 
 - **`ssh -A host`** — the forwarded agent is inert (logging in to `host` itself still works).
 - **`ssh -J jump host`** (`ProxyJump`) and direct connections — **unaffected**; they
-  authenticate locally, not over a forwarded agent. Prefer `-J` over `-A`.
+  authenticate from your machine, not over a forwarded agent.
 
-Need forwarding anyway? Run the agent with the opt-in flag:
+**Prefer `-J` (ProxyJump) over `-A`.** For "reach host B through bastion A", `-J` keeps signing
+on your laptop and never exposes the agent to the bastion — it's both safer and works with sod
+out of the box. Reach for forwarding only when you genuinely need the agent itself present on
+the remote (e.g. `git push` from a remote shell).
+
+If you do need it, there are two ways to allow it — neither is a one-flag `sd` command, on
+purpose: a *persistent* allow silently re-opens this hole for every future `ssh -A`, so we keep
+it a deliberate act.
+
+**1. Temporarily, for one session.** The login agent has `KeepAlive` — a plain `sd ssh-agent -k`
+just gets relaunched by `launchd` — so stop it with `bootout`, run an allowing agent on the same
+socket, then restore it (or just open a new login session):
 
 ```sh
-sd ssh-agent --allow-agent-forwarding      # throwaway agent that permits ssh -A
+launchctl bootout gui/$(id -u)/consulting.botanica.sod.agent   # stop the refusing login agent
+eval "$(sd ssh-agent --allow-agent-forwarding)"                # allowing agent on the same socket
+ssh -A host                                                    # forwarding works for this shell
+sd ssh-agent -k                                                # stop the allowing agent (frees the socket)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/consulting.botanica.sod.agent.plist  # restore
 ```
+
+Or, without touching the login agent at all, run a throwaway allowing agent on its own socket
+and point just this shell at it:
+
+```sh
+eval "$(sd ssh-agent --allow-agent-forwarding -a /tmp/sod-fwd.sock)"   # this shell only
+ssh -A host
+sd ssh-agent -k -a /tmp/sod-fwd.sock                                   # stop it when done
+```
+
+**2. Persistently, by editing the LaunchAgent.** Add `--allow-agent-forwarding` to the
+`ProgramArguments` in `~/Library/LaunchAgents/consulting.botanica.sod.agent.plist`:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+    <string>/usr/local/bin/sd</string>
+    <string>ssh-agent</string>
+    <string>-d</string>
+    <string>--allow-agent-forwarding</string>   <!-- add this line -->
+    <string>-a</string>
+    <string>/Users/you/.ssh/sod-agent.sock</string>
+</array>
+```
+
+then reload it:
+
+```sh
+launchctl bootout    gui/$(id -u)/consulting.botanica.sod.agent
+launchctl bootstrap  gui/$(id -u) ~/Library/LaunchAgents/consulting.botanica.sod.agent.plist
+```
+
+Note: `sd install` and `sd uninstall` **regenerate** this plist, so running either resets the
+agent to the refusing default (fail-closed) — re-apply the edit afterward if you still want it.
 
 ## How it works
 
