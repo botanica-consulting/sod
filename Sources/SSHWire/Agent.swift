@@ -1,7 +1,8 @@
 import Foundation
 
 extension SSHWire {
-    /// ssh-agent protocol message numbers (RFC 9987 / OpenSSH PROTOCOL.agent).
+    /// ssh-agent protocol message numbers (OpenSSH `PROTOCOL.agent`; the IETF
+    /// `draft-ietf-sshm-ssh-agent` Standards-Track draft — the protocol is not an RFC).
     public enum Agent {
         public static let failure: UInt8 = 5
         public static let success: UInt8 = 6
@@ -13,6 +14,11 @@ extension SSHWire {
         public static let addSmartcardKey: UInt8 = 20  // ssh-add -s
         public static let removeSmartcardKey: UInt8 = 21  // ssh-add -e
         public static let addSmartcardKeyConstrained: UInt8 = 26  // ssh-add -s with constraints
+        public static let extensionRequest: UInt8 = 27  // SSH_AGENTC_EXTENSION
+
+        /// Extension name `ssh` sends (≥ 8.9) to bind a connection to its session/host key and to
+        /// flag whether the agent is being *forwarded* to a remote host.
+        public static let sessionBindExtension = "session-bind@openssh.com"
     }
 
     /// One entry in an IDENTITIES_ANSWER.
@@ -35,6 +41,10 @@ extension SSHWire {
         // The wire PIN field is parsed but dropped (the SE gates on Touch ID).
         case addSmartcardKey(provider: String)
         case removeSmartcardKey(provider: String)
+        // session-bind@openssh.com (SSH_AGENTC_EXTENSION): ssh tells us the session's host key and
+        // whether this agent connection is being *forwarded* to a remote host. We record the
+        // forwarding flag per connection so a SIGN_REQUEST on a forwarded connection can be refused.
+        case sessionBind(hostKey: Data, isForwarding: Bool)
         case unsupported(type: UInt8)
     }
 
@@ -114,6 +124,25 @@ extension SSHWire {
             return type == Agent.removeSmartcardKey
                 ? .removeSmartcardKey(provider: provider)
                 : .addSmartcardKey(provider: provider)
+
+        case Agent.extensionRequest:
+            // string ext-name, then ext-specific data. We only care about session-bind; any other
+            // extension (or a short/garbled body) degrades to unsupported → FAILURE.
+            var r = ByteReader(payload)
+            guard let nameData = try? r.readString(),
+                String(decoding: nameData, as: UTF8.self) == Agent.sessionBindExtension
+            else {
+                return .unsupported(type: type)
+            }
+            // session-bind body: string hostkey, string session-id, string signature, bool is_forwarding.
+            guard let hostKey = try? r.readString(),
+                (try? r.readString()) != nil,  // session id — unused
+                (try? r.readString()) != nil,  // signature — unused (ssh already verified the host)
+                let fwd = (try? r.readBytes(1))?.first
+            else {
+                return .unsupported(type: type)
+            }
+            return .sessionBind(hostKey: hostKey, isForwarding: fwd != 0)
 
         default:
             return .unsupported(type: type)

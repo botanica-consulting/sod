@@ -152,5 +152,22 @@ extension Harness {
         eq(
             SSHWire.parseRequest(type: 21, payload: rem),
             .removeSmartcardKey(provider: "/path/to/key"), "parse remove-smartcard (-e)")
+
+        // session-bind@openssh.com (SSH_AGENTC_EXTENSION = 27): hostkey, session-id, signature,
+        // and the trailing is_forwarding bool we route on.
+        let hk = Data([0xde, 0xad, 0xbe, 0xef])
+        let bindBody =
+            SSHWire.string("session-bind@openssh.com") + SSHWire.string(hk)
+            + SSHWire.string(Data([0x11])) + SSHWire.string(Data([0x22]))
+        eq(
+            SSHWire.parseRequest(type: 27, payload: bindBody + Data([0])),
+            .sessionBind(hostKey: hk, isForwarding: false), "parse session-bind (not forwarding)")
+        eq(
+            SSHWire.parseRequest(type: 27, payload: bindBody + Data([1])),
+            .sessionBind(hostKey: hk, isForwarding: true), "parse session-bind (forwarding)")
+        // a non-session-bind extension is not handled -> unsupported (still FAILURE)
+        eq(
+            SSHWire.parseRequest(type: 27, payload: SSHWire.string("query@openssh.com")),
+            .unsupported(type: 27), "parse foreign extension -> unsupported")
     }
 }

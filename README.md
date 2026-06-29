@@ -192,6 +192,23 @@ ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the S
 ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ```
 
+**Agent forwarding is refused by default.** Forwarding a presence-gated key to a remote host
+is a classic ssh-agent footgun: a compromised remote can ask your agent to sign. So when a
+connection is being **forwarded** (`ssh -A` / `ForwardAgent yes`), sod presents an *empty*
+agent and refuses to sign — a remote can neither use nor enumerate your Secure-Enclave key.
+This is detected from the standard `session-bind@openssh.com` flag (OpenSSH ≥ 8.9), so it
+distinguishes forwarding precisely:
+
+- **`ssh -A host`** — the forwarded agent is inert (logging in to `host` itself still works).
+- **`ssh -J jump host`** (`ProxyJump`) and direct connections — **unaffected**; they
+  authenticate locally, not over a forwarded agent. Prefer `-J` over `-A`.
+
+Need forwarding anyway? Run the agent with the opt-in flag:
+
+```sh
+sd ssh-agent --allow-agent-forwarding      # throwaway agent that permits ssh -A
+```
+
 ## How it works
 
 ```
@@ -214,6 +231,9 @@ no keychain item to clean up, because the blob is the only reference to it.
   secret; only this Mac's SE can use it.
 - `.userPresence` = Touch ID with passcode fallback, durable across re-enrollment.
 - Listing identities / reading the public key never prompts; only signing does.
+- **Agent forwarding (`ssh -A`) is refused by default** — a forwarded connection sees an empty
+  agent and gets no signatures, so a remote host can't use the key. `ProxyJump` (`-J`) and
+  direct connections are unaffected. Opt in with `sd ssh-agent --allow-agent-forwarding`.
 - No keychain item, no keychain access group, no entitlements — which is also why a
   plain Developer-ID signature notarizes cleanly. See [`SECURITY.md`](SECURITY.md) to
   report a vulnerability.
