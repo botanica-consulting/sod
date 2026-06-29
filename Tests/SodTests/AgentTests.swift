@@ -40,6 +40,15 @@ func runAgentSuite(_ h: Harness) {
             payload: SSHWire.string(dir + "/nope") + SSHWire.string(""), state: state),
         type: SSHWire.Agent.failure, "add-smartcard rejects non-handle")
 
+    // constrained add (ssh-add -h/-t/-c): refused even for a real handle — we don't
+    // enforce the constraints, so we won't fake them by serving an unconstrained key.
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.addSmartcardKeyConstrained,
+            payload: SSHWire.string(keyPath) + SSHWire.string("") + Data([0, 0, 0, 0]),
+            state: state),
+        type: SSHWire.Agent.failure, "constrained add (-h/-t/-c) is refused, even for a valid handle")
+
     // request-identities: our one key, blob + comment match.
     do {
         let (t, p) = try SSHWire.splitFramed(
