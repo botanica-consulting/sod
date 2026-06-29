@@ -192,6 +192,18 @@ ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the S
 ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ```
 
+**Constrained adds are refused, not faked.** sod does not enforce `ssh-add` key
+constraints — destination (`-h`), lifetime (`-t`), or confirm (`-c`) — so it *rejects*
+an add that carries them rather than silently serving an unconstrained key under a
+constraint it won't honor. (`ssh-add -h` is the agent-side defense against
+agent-forwarding abuse; honoring it for real isn't implemented, so we fail loudly instead
+of giving a false sense of it.) Touch ID still gates every signature regardless.
+
+```sh
+ssh-add -h relay.example.com -s ~/.ssh/id_sod   # refused: "agent refused operation"
+ssh-add -s ~/.ssh/id_sod                        # add without constraints — works
+```
+
 ## How it works
 
 ```

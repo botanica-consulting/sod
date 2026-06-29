@@ -143,11 +143,12 @@ extension Harness {
         eq(
             SSHWire.parseRequest(type: 20, payload: add),
             .addSmartcardKey(provider: "/path/to/key"), "parse add-smartcard (-s)")
-        // pin + trailing constraints are parsed and ignored
+        // constrained add (ssh-add -h/-t/-c): provider recovered, routed to its own case
+        // (the agent refuses it — we don't enforce the trailing constraints).
         let addc = SSHWire.string("/p") + SSHWire.string("pin") + Data([0, 0, 0, 0])
         eq(
             SSHWire.parseRequest(type: 26, payload: addc),
-            .addSmartcardKey(provider: "/p"), "parse add-smartcard-constrained")
+            .addSmartcardKeyConstrained(provider: "/p"), "parse add-smartcard-constrained -> distinct case")
         let rem = SSHWire.string("/path/to/key") + SSHWire.string("")
         eq(
             SSHWire.parseRequest(type: 21, payload: rem),

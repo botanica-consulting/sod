@@ -194,3 +194,17 @@ ssh -i ~/.ssh/id_sod user@host
 .Sh CAVEATS
 macOS only.
 The Secure Enclave requires Apple Silicon or a T2 chip.
+.Pp
+The agent does not enforce
+.Xr ssh-add 1
+key constraints \(em destination
+.Pq Fl h ,
+lifetime
+.Pq Fl t ,
+or confirm
+.Pq Fl c .
+A constrained add is
+.Em refused
+rather than honored as an unconstrained one, so a constraint that would not be
+enforced never appears to succeed.
+Touch ID gates every signature regardless.
