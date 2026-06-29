@@ -48,6 +48,33 @@ extension SSHWire {
         case unsupported(type: UInt8)
     }
 
+    /// What a SIGN_REQUEST's to-be-signed blob represents — enough to describe it in a Touch ID
+    /// prompt. Derived purely from the bytes the client handed us, so it needs nothing else.
+    public enum SignedPayload: Equatable {
+        case sshsig(namespace: String)  // ssh-keygen -Y sign (git, file, app-defined) — SSHSIG blob
+        case sshUserAuth  // a public-key SSH login (SSH2_MSG_USERAUTH_REQUEST)
+        case other
+    }
+
+    /// SSH2_MSG_USERAUTH_REQUEST, the byte that follows the session id in a userauth signature.
+    private static let userAuthRequest: UInt8 = 50
+
+    /// Classify a SIGN_REQUEST payload. SSHSIG blobs begin with the literal magic "SSHSIG"
+    /// followed by a namespace string; a userauth blob is `string session-id || byte 50 || …`.
+    public static func classifySignedData(_ data: Data) -> SignedPayload {
+        let magic = Data("SSHSIG".utf8)
+        if data.starts(with: magic) {
+            var r = ByteReader(Data(data.dropFirst(magic.count)))
+            let ns = (try? r.readString()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            return .sshsig(namespace: ns)
+        }
+        var r = ByteReader(data)
+        if (try? r.readString()) != nil, (try? r.readBytes(1))?.first == userAuthRequest {
+            return .sshUserAuth
+        }
+        return .other
+    }
+
     /// Max ssh-agent message size we accept (bounds allocation against a hostile length prefix).
     public static let maxAgentMessage = 256 * 1024
 

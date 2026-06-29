@@ -53,10 +53,7 @@ public struct SecureEnclaveBackend: KeyBackend {
         }
     }
 
-    /// Shown on the Touch ID sheet for every signature, in place of the bare system default.
-    private static let signReason = "Authorize a signature with your sod Secure-Enclave key"
-
-    public func sign(handle: Data, data: Data) throws -> Data {
+    public func sign(handle: Data, data: Data, reason: String) throws -> Data {
         do {
             // Authenticate once with our own prompt text, then hand the already-authenticated
             // context to the signing operation so it doesn't prompt a second time. A fresh
@@ -64,7 +61,7 @@ public struct SecureEnclaveBackend: KeyBackend {
             // key still carries .userPresence, so this can only reuse a satisfied prompt — never
             // bypass presence.
             let context = LAContext()
-            try authenticatePresence(context)
+            try authenticatePresence(context, reason: reason)
             let key = try SecureEnclave.P256.Signing.PrivateKey(
                 dataRepresentation: handle, authenticationContext: context)
             return try key.signature(for: data).rawRepresentation
@@ -75,15 +72,13 @@ public struct SecureEnclaveBackend: KeyBackend {
         }
     }
 
-    /// Block until Touch ID (passcode fallback) authorizes key-signing for `context`, showing our
-    /// own reason string. Throws on cancel/failure so a refused prompt never yields a signature.
-    private func authenticatePresence(_ context: LAContext) throws {
+    /// Block until Touch ID (passcode fallback) authorizes key-signing for `context`, showing
+    /// `reason`. Throws on cancel/failure so a refused prompt never yields a signature.
+    private func authenticatePresence(_ context: LAContext, reason: String) throws {
         let ac = try accessControl()
         let sem = DispatchSemaphore(value: 0)
         let box = AuthResultBox()
-        context.evaluateAccessControl(
-            ac, operation: .useKeySign, localizedReason: SecureEnclaveBackend.signReason
-        ) { _, error in
+        context.evaluateAccessControl(ac, operation: .useKeySign, localizedReason: reason) { _, error in
             box.error = error
             sem.signal()
         }

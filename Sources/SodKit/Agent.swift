@@ -97,6 +97,32 @@ public final class AgentConnection {
     public init() {}
 }
 
+/// A terse Touch ID reason derived from the bytes being signed. macOS renders it as
+/// "sd is trying to <reason>.", so it's phrased lowercase and verb-first, e.g.
+/// "sign a git commit or tag with your sod key" / "log in over SSH with your sod key".
+func signReason(for data: Data) -> String {
+    let action: String
+    switch SSHWire.classifySignedData(data) {
+    case .sshsig(let ns) where isSafePromptNamespace(ns):
+        switch ns {
+        case "git": action = "sign a git commit or tag"
+        case "file": action = "sign a file"
+        default: action = "sign \(ns) data"
+        }
+    case .sshUserAuth:
+        action = "log in over SSH"
+    default:
+        action = "sign"
+    }
+    return "\(action) with your sod key"
+}
+
+/// Only echo a client-chosen SSHSIG namespace into the prompt if it's short and printable, so a
+/// crafted namespace can't inject misleading text into the Touch ID sheet.
+private func isSafePromptNamespace(_ ns: String) -> Bool {
+    !ns.isEmpty && ns.count <= 40 && ns.allSatisfy { $0.isLetter || $0.isNumber || "@._-+/".contains($0) }
+}
+
 /// Handle one agent request and produce the framed response. Public so tests can
 /// exercise identities/sign/add/remove with the mock backend (no socket, no Touch ID).
 /// `conn` carries per-connection session-bind state; it defaults to a fresh (non-forwarded)
@@ -149,7 +175,8 @@ public func handleRequest(
                 SSHWire.ecdsaP256PublicKeyBlob(x963: x963) == keyBlob
             else { continue }
             do {
-                let raw = try state.backend.sign(handle: h.handle, data: data)  // Touch ID (real backend)
+                // Touch ID (real backend), with a reason that names what's being signed.
+                let raw = try state.backend.sign(handle: h.handle, data: data, reason: signReason(for: data))
                 return SSHWire.signResponse(signatureBlob: try SSHWire.ecdsaP256SignatureBlob(rawRS: raw))
             } catch {
                 elog("sign failed: \(error)")

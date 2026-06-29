@@ -169,5 +169,19 @@ extension Harness {
         eq(
             SSHWire.parseRequest(type: 27, payload: SSHWire.string("query@openssh.com")),
             .unsupported(type: 27), "parse foreign extension -> unsupported")
+
+        runClassifySignedData()
+    }
+
+    func runClassifySignedData() {
+        // SSHSIG blob: magic "SSHSIG" + namespace string + (rest) -> namespace extracted.
+        let sshsig = Data("SSHSIG".utf8) + SSHWire.string("git") + SSHWire.string("")
+        eq(SSHWire.classifySignedData(sshsig), .sshsig(namespace: "git"), "classify SSHSIG namespace (git)")
+        // SSH userauth blob: string session-id, then byte 50 (SSH2_MSG_USERAUTH_REQUEST).
+        let userauth = SSHWire.string(Data(repeating: 0xab, count: 32)) + Data([50]) + SSHWire.string("alon")
+        eq(SSHWire.classifySignedData(userauth), .sshUserAuth, "classify SSH userauth")
+        // Anything else -> other (here a userauth-shaped blob whose tag byte isn't 50).
+        let other = SSHWire.string(Data(repeating: 0xab, count: 32)) + Data([99])
+        eq(SSHWire.classifySignedData(other), .other, "classify unknown payload -> other")
     }
 }
