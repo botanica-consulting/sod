@@ -5,7 +5,8 @@ extension SSHWire {
     public enum Agent {
         public static let failure: UInt8 = 5
         public static let success: UInt8 = 6
-        public static let removeAllIdentities: UInt8 = 9  // ssh-add -D
+        public static let removeAllIdentities: UInt8 = 19  // ssh-add -D (SSH2_AGENTC_REMOVE_ALL_IDENTITIES)
+        public static let removeAllIdentitiesLegacy: UInt8 = 9  // SSH1 RSA remove-all; still accepted
         public static let requestIdentities: UInt8 = 11
         public static let identitiesAnswer: UInt8 = 12
         public static let signRequest: UInt8 = 13
@@ -90,7 +91,7 @@ extension SSHWire {
         case Agent.requestIdentities:
             return .requestIdentities
 
-        case Agent.removeAllIdentities:
+        case Agent.removeAllIdentities, Agent.removeAllIdentitiesLegacy:
             return .removeAllIdentities
 
         case Agent.signRequest:

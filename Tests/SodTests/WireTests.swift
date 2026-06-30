@@ -125,7 +125,8 @@ extension Harness {
 
     func runParseRequests() {
         eq(SSHWire.parseRequest(type: 11, payload: Data()), .requestIdentities, "parse request-identities")
-        eq(SSHWire.parseRequest(type: 9, payload: Data()), .removeAllIdentities, "parse remove-all (-D)")
+        eq(SSHWire.parseRequest(type: 19, payload: Data()), .removeAllIdentities, "parse remove-all (-D, SSH2 #19)")
+        eq(SSHWire.parseRequest(type: 9, payload: Data()), .removeAllIdentities, "parse remove-all (legacy SSH1 #9)")
 
         let signReq = SSHWire.string(Data([0xaa])) + SSHWire.string(Data([0xbb, 0xcc])) + SSHWire.uint32(0)
         eq(
