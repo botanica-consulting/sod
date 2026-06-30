@@ -136,6 +136,16 @@ func runAgentSuite(_ h: Harness) {
         h.eq(try r.readUInt32(), 0, "forwarded connection presents no identities")
     } catch { h.fail("forwarded-identities threw \(error)") }
 
+    // Downgrade defense: the real forwarded flow is bind(fwd=1) THEN bind(fwd=0) (the remote's
+    // own user-auth, or a malicious remote injecting it). The forwarding latch must hold, so the
+    // sign is still refused.
+    let downgrade = AgentConnection()
+    _ = handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(1), state: refusing, conn: downgrade)
+    _ = handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(0), state: refusing, conn: downgrade)
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: goodSign, state: refusing, conn: downgrade),
+        type: SSHWire.Agent.failure, "forwarding latch: bind(1) then bind(0) still refuses to sign")
+
     // Opt-in: with forwarding allowed, the same forwarded connection signs.
     let allowing = AgentState(backend: backend, refuseForwarding: false)
     allowing.add(keyPath)

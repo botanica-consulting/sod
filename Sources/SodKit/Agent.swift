@@ -135,7 +135,11 @@ public func handleRequest(
     // ssh binds the connection before authenticating: record the host key and whether this
     // connection is being *forwarded* to a remote host, then ack. Everything after consults it.
     if case .sessionBind(let hostKey, let isForwarding) = request {
-        conn.forwarding = isForwarding
+        // LATCH forwarding ON for the connection's lifetime — never clear it. A forwarded
+        // connection legitimately receives bind(is_forwarding=1) from the relaying ssh and THEN
+        // bind(is_forwarding=0) from the remote's own user-auth (and a malicious remote could
+        // inject the 0 itself), so last-write-wins would wrongly downgrade it back to "local".
+        conn.forwarding = conn.forwarding || isForwarding
         conn.boundHostKey = hostKey
         if isForwarding {
             elog("session bound as FORWARDED — agent is being forwarded to a remote host")
