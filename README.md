@@ -43,11 +43,12 @@ default key, the login agent, the live socket, and your shell wiring) that tells
 exactly what to fix.
 
 ## Why sod
-
-- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
-  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
+- **Minimal.** CLI-only, idiomatic, minimal surface interoping Secure Enclave to OpenSSH utilities.
+  Barebones, no-fluff. 
 - **Presence on every signature.** Touch ID with
   passcode fallback, durable across fingerprint re-enrollment.
+- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
+  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
 - **Zero conf.** Runs as an independent ssh agent, does not meddle with your other SSH key flows.
