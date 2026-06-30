@@ -6,29 +6,12 @@ changing it.
 
 ## Design principles
 
-- **Lean.** One binary, no third-party dependencies beyond Apple's frameworks and
-  swift-argument-parser. No config files, no telemetry, no root daemons. New surface needs
-  a reason; the default answer is "don't add it."
+- **Lean.** 
 
-- **Composes; doesn't replace.** sod is the key and the agent. It stacks with OpenSSH and
-  its ecosystem — `ssh`, `ssh-add`, `ssh-keygen -Y`, git — and uses their features instead
-  of re-implementing them. Where `sd` shadows a stock tool it mirrors that tool's flags and
-  output; where a wrapper exists (e.g. `sd ssh-copy-id`) it's a thin pass-through that fills
-  in a default, not new behavior.
+- **Compose with, don't replace.** 
 
-- **No homegrown crypto.** Signing, key handling, and the SSH / agent / SSHSIG wire formats
-  come from CryptoKit, Security.framework, and the documented protocols. Verification is
-  whatever stock tooling already does (`ssh-keygen -Y verify`). sod defines no formats and
-  implements no ciphers.
+- **Don't roll your own crypto.** 
 
-- **A thin path to the finger.** The agent is a minimal bridge between a request and the
-  Secure Enclave. Every signature is one Touch ID. Nothing goes between intent and presence
-  that would dilute it — no presence cache by default, no silent reuse.
-
-- **An oracle for presence.** sod's value is the proof that a person was physically there
-  and approved a specific thing. Changes preserve or sharpen that. When sod can't honor a
-  guarantee it refuses rather than pretending — it rejects key constraints it won't enforce,
-  and refuses a forwarded agent instead of silently signing for one.
 
 ## Working on it
 
@@ -56,6 +39,4 @@ by running on a Mac with Touch ID.
 
 ## Pull requests
 
-Keep the diff focused. The lint gate and `SE_SSH_MOCK=1 swift run sod-tests` should pass.
-Changes under `SEKeyStore` or `SSHWire` touch crypto and the wire protocol — note the
-reasoning.
+You are welcome to submit pull requests.
