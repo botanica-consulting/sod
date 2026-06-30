@@ -230,7 +230,7 @@ SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/k  # full generate → agent → ssh
 
 The mock is compiled **only** when `SE_SSH_MOCK` is set, so it is physically absent
 from any release build (which prints a loud warning if you somehow build one). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the lint and coverage commands.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the build, test, and lint commands.
 
 ## Project layout
 
