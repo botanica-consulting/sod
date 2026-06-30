@@ -81,6 +81,14 @@ Force Bourne-shell (sh) or C-shell (csh) env output (default: detect from
 Foreground mode: bind and serve, do not fork (debugging / LaunchAgent).
 .It Fl k
 Kill the agent running on the socket.
+.It Fl -allow-agent-forwarding
+Permit agent forwarding
+.Pq Cm ssh Fl A .
+Off by default: the agent refuses to sign for, or list keys over, a forwarded
+connection, so a remote host cannot use this Secure-Enclave key.
+.Cm ProxyJump
+.Pq Fl J
+and direct connections are unaffected either way.
 .El
 .Pp
 To run the agent automatically at login, see
@@ -194,3 +202,15 @@ ssh -i ~/.ssh/id_sod user@host
 .Sh CAVEATS
 macOS only.
 The Secure Enclave requires Apple Silicon or a T2 chip.
+.Pp
+Agent forwarding
+.Pq Cm ssh Fl A
+is refused by default: a forwarded connection is presented an empty agent and
+gets no signatures.
+Use
+.Fl -allow-agent-forwarding
+to permit it.
+Detection relies on the
+.Ql session-bind@openssh.com
+binding sent by OpenSSH 8.9 and later; older clients that forward an agent
+cannot be distinguished.

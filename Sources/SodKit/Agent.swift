@@ -38,9 +38,15 @@ private func installSignalHandlers(socketPath: String, pidPath: String) {
 /// loop, so no locking is needed.
 public final class AgentState {
     public let backend: KeyBackend
+    /// When true (the default), refuse to act as a *forwarded* agent — a remote host can neither
+    /// use nor enumerate the Secure-Enclave key. Cleared by `sd ssh-agent --allow-agent-forwarding`.
+    public let refuseForwarding: Bool
     private var providers: [String] = []
 
-    public init(backend: KeyBackend) { self.backend = backend }
+    public init(backend: KeyBackend, refuseForwarding: Bool = true) {
+        self.backend = backend
+        self.refuseForwarding = refuseForwarding
+    }
 
     private func absolute(_ path: String) -> String {
         (path as NSString).isAbsolutePath
@@ -82,10 +88,82 @@ public final class AgentState {
     }
 }
 
+/// Per-connection state for one agent socket connection. The accept loop is serial and each
+/// connection runs its own `serve` loop, so this needs no locking. `session-bind@openssh.com`
+/// populates `forwarding`/`boundHostKey`; the requests that follow on the connection consult it.
+public final class AgentConnection {
+    public var forwarding = false
+    public var boundHostKey: Data?
+    public init() {}
+}
+
+/// A terse Touch ID reason derived from the bytes being signed. macOS renders it as
+/// "sd is trying to <reason>.", so it's phrased lowercase and verb-first, e.g.
+/// "sign a git commit or tag with your sod key" / "log in over SSH with your sod key".
+func signReason(for data: Data) -> String {
+    let action: String
+    switch SSHWire.classifySignedData(data) {
+    case .sshsig(let ns) where isSafePromptNamespace(ns):
+        switch ns {
+        case "git": action = "sign a git commit or tag"
+        case "file": action = "sign a file"
+        default: action = "sign \(ns) data"
+        }
+    case .sshUserAuth:
+        action = "log in over SSH"
+    default:
+        action = "sign"
+    }
+    return "\(action) with your sod key"
+}
+
+/// Only echo a client-chosen SSHSIG namespace into the prompt if it's short and printable, so a
+/// crafted namespace can't inject misleading text into the Touch ID sheet.
+private func isSafePromptNamespace(_ ns: String) -> Bool {
+    !ns.isEmpty && ns.count <= 40 && ns.allSatisfy { $0.isLetter || $0.isNumber || "@._-+/".contains($0) }
+}
+
 /// Handle one agent request and produce the framed response. Public so tests can
 /// exercise identities/sign/add/remove with the mock backend (no socket, no Touch ID).
-public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data {
-    switch SSHWire.parseRequest(type: type, payload: payload) {
+/// `conn` carries per-connection session-bind state; it defaults to a fresh (non-forwarded)
+/// connection so existing call sites and one-shot tests are unaffected.
+public func handleRequest(
+    type: UInt8, payload: Data, state: AgentState, conn: AgentConnection = AgentConnection()
+) -> Data {
+    let request = SSHWire.parseRequest(type: type, payload: payload)
+
+    // ssh binds the connection before authenticating: record the host key and whether this
+    // connection is being *forwarded* to a remote host, then ack. Everything after consults it.
+    if case .sessionBind(let hostKey, let isForwarding) = request {
+        // LATCH forwarding ON for the connection's lifetime — never clear it. A forwarded
+        // connection legitimately receives bind(is_forwarding=1) from the relaying ssh and THEN
+        // bind(is_forwarding=0) from the remote's own user-auth (and a malicious remote could
+        // inject the 0 itself), so last-write-wins would wrongly downgrade it back to "local".
+        conn.forwarding = conn.forwarding || isForwarding
+        conn.boundHostKey = hostKey
+        if isForwarding {
+            elog("session bound as FORWARDED — agent is being forwarded to a remote host")
+        }
+        return SSHWire.success()
+    }
+
+    // Refuse to act as a forwarded agent unless explicitly allowed. `-A` produces a forwarded
+    // connection (bound is_forwarding=1 by the relaying ssh); `-J`/ProxyJump and direct
+    // connections authenticate locally (is_forwarding=0) and are unaffected. Present an *empty*
+    // agent for identity listing — no public-key/comment leak, no confusing downstream errors —
+    // and fail every other operation so a remote can neither sign with nor manage the SE key.
+    if conn.forwarding && state.refuseForwarding {
+        if case .requestIdentities = request {
+            elog("forwarded agent: presenting no identities (agent forwarding disabled)")
+            return SSHWire.identitiesAnswer([])
+        }
+        elog(
+            "forwarded agent: refused (agent forwarding disabled; run the agent with "
+                + "--allow-agent-forwarding to permit)")
+        return SSHWire.failure()
+    }
+
+    switch request {
     case .requestIdentities:
         // No biometrics: reconstructing a key and reading its public key never prompts.
         var ids: [SSHWire.AgentIdentity] = []
@@ -101,7 +179,8 @@ public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data
                 SSHWire.ecdsaP256PublicKeyBlob(x963: x963) == keyBlob
             else { continue }
             do {
-                let raw = try state.backend.sign(handle: h.handle, data: data)  // Touch ID (real backend)
+                // Touch ID (real backend), with a reason that names what's being signed.
+                let raw = try state.backend.sign(handle: h.handle, data: data, reason: signReason(for: data))
                 return SSHWire.signResponse(signatureBlob: try SSHWire.ecdsaP256SignatureBlob(rawRS: raw))
             } catch {
                 elog("sign failed: \(error)")
@@ -122,18 +201,24 @@ public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data
     case .removeAllIdentities:  // ssh-add -D
         state.removeAll(); elog("unloaded all keys"); return SSHWire.success()
 
+    case .sessionBind:
+        return SSHWire.success()  // unreachable: handled above before the forwarding gate
+
     case .unsupported:
         return SSHWire.failure()
     }
 }
 
 private func serve(_ fd: Int32, state: AgentState) {
+    let conn = AgentConnection()  // session-bind state lives for this one connection
     while true {
         guard let lenData = readExactly(fd, 4) else { return }
         var r = ByteReader(lenData)
         guard let len = try? r.readUInt32(), len >= 1, Int(len) <= maxMessage else { return }
         guard let body = readExactly(fd, Int(len)) else { return }
-        if !writeAll(fd, handleRequest(type: body.first!, payload: Data(body.dropFirst()), state: state)) { return }
+        if !writeAll(fd, handleRequest(type: body.first!, payload: Data(body.dropFirst()), state: state, conn: conn)) {
+            return
+        }
     }
 }
 
@@ -156,11 +241,13 @@ private func emitEnv(socketPath: String, dialect: String) {
     }
 }
 
-private func spawnDaemon(socketPath: String, providers: [String]) {
+private func spawnDaemon(socketPath: String, providers: [String], allowForwarding: Bool) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: executablePath())
-    // Re-enter via the subcommand: `sd ssh-agent --daemon -a <sock> [providers...]`.
-    p.arguments = ["ssh-agent", "--daemon", "-a", socketPath] + providers
+    // Re-enter via the subcommand: `sd ssh-agent --daemon -a <sock> [--allow-agent-forwarding] [providers...]`.
+    p.arguments =
+        ["ssh-agent", "--daemon", "-a", socketPath]
+        + (allowForwarding ? ["--allow-agent-forwarding"] : []) + providers
     p.standardInput = FileHandle.nullDevice
     p.standardOutput = FileHandle.nullDevice
     p.standardError = FileHandle.nullDevice
@@ -203,13 +290,14 @@ private func killAgent(socketPath: String) -> Never {
 
 // MARK: - run modes
 
-private func runListen(socketPath: String, providers: [String], detach: Bool) -> Never {
+private func runListen(socketPath: String, providers: [String], detach: Bool, allowForwarding: Bool) -> Never {
     if Backends.isMock { elog(Backends.mockWarning) }
     let logDir = (socketPath as NSString).deletingLastPathComponent
     if detach { daemonize(logDir: logDir.isEmpty ? "." : logDir) }
 
     let backend = Backends.active()
-    let state = AgentState(backend: backend)
+    let state = AgentState(backend: backend, refuseForwarding: !allowForwarding)
+    if allowForwarding { elog("agent forwarding ALLOWED (--allow-agent-forwarding)") }
     for p in providers where !state.add(p) { elog("warning: no sod handle at \(p)") }
     // The default key is canonical: always serve ~/.ssh/id_sod, resolved per request so it
     // appears as soon as it exists. Drop it for the session with `sd ssh-add -d`/`-D`.
@@ -229,10 +317,12 @@ private func runListen(socketPath: String, providers: [String], detach: Bool) ->
     exit(0)
 }
 
-private func ensureAndEmit(socketPath: String, providers: [String], dialect: String) -> Never {
+private func ensureAndEmit(
+    socketPath: String, providers: [String], dialect: String, allowForwarding: Bool
+) -> Never {
     if Backends.isMock { elog(Backends.mockWarning) }
     if !isSocketLive(socketPath) {
-        spawnDaemon(socketPath: socketPath, providers: providers)
+        spawnDaemon(socketPath: socketPath, providers: providers, allowForwarding: allowForwarding)
         var tries = 0
         while !isSocketLive(socketPath), tries < 300 { usleep(10_000); tries += 1 }  // up to ~3s
         guard isSocketLive(socketPath) else { errExit("agent did not come up at \(socketPath)") }
@@ -286,6 +376,15 @@ public struct Agent: ParsableCommand {
     @Flag(name: .customShort("E"), help: "Ensure an agent is running and print its env (the default).")
     var ensure = false
 
+    @Flag(
+        name: .long,
+        help: """
+            Permit agent forwarding (ssh -A). Off by default: the agent refuses to sign for or \
+            list keys over a forwarded connection, so a remote host can't use this Secure-Enclave \
+            key. ProxyJump (-J) and direct connections are unaffected either way.
+            """)
+    var allowAgentForwarding = false
+
     @Flag(name: .long, help: ArgumentHelp(visibility: .private))  // internal: invoked by the lazy-spawn path
     var daemon = false
 
@@ -298,11 +397,14 @@ public struct Agent: ParsableCommand {
         let sock = expandTilde(socket ?? "~/.ssh/sod-agent.sock")
         let provs = providers.map { expandTilde($0) }
 
+        let allowFwd = allowAgentForwarding
         if kill { killAgent(socketPath: sock) }  // Never
-        if daemon { runListen(socketPath: sock, providers: provs, detach: true) }  // Never
-        if foreground { runListen(socketPath: sock, providers: provs, detach: false) }  // Never
+        if daemon { runListen(socketPath: sock, providers: provs, detach: true, allowForwarding: allowFwd) }  // Never
+        if foreground {
+            runListen(socketPath: sock, providers: provs, detach: false, allowForwarding: allowFwd)  // Never
+        }
 
         let dialect = csh ? "csh" : (sh ? "sh" : detectDialect())
-        ensureAndEmit(socketPath: sock, providers: provs, dialect: dialect)  // Never
+        ensureAndEmit(socketPath: sock, providers: provs, dialect: dialect, allowForwarding: allowFwd)  // Never
     }
 }

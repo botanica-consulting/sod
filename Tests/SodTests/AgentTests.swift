@@ -94,5 +94,67 @@ func runAgentSuite(_ h: Harness) {
         var r = ByteReader(p)
         h.eq(try r.readUInt32(), 0, "no identities after remove-all")
     } catch { h.fail("identities-after-removeall threw \(error)") }
+
+    // ---- agent forwarding (session-bind is_forwarding) ----
+    // A session-bind extension body with the given forwarding flag (host key + ids are dummies).
+    func bind(_ forwarding: UInt8) -> Data {
+        SSHWire.string("session-bind@openssh.com") + SSHWire.string(Data([0xab]))  // hostkey
+            + SSHWire.string(Data([0x01])) + SSHWire.string(Data([0x02]))  // session id, signature
+            + Data([forwarding])
+    }
+    let goodSign = SSHWire.string(expectedBlob) + SSHWire.string(msg) + SSHWire.uint32(0)
+
+    // Default policy refuses forwarding. A non-forwarded connection (bind fwd=0) behaves normally.
+    let refusing = AgentState(backend: backend)
+    refusing.add(keyPath)
+    let local = AgentConnection()
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(0), state: refusing, conn: local),
+        type: SSHWire.Agent.success, "session-bind (local) acks")
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: goodSign, state: refusing, conn: local),
+        type: SSHWire.Agent.signResponse, "local (fwd=0) connection signs")
+
+    // A forwarded connection (bind fwd=1) refuses to sign / add, and lists no identities.
+    let fwd = AgentConnection()
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(1), state: refusing, conn: fwd),
+        type: SSHWire.Agent.success, "session-bind (forwarded) acks")
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: goodSign, state: refusing, conn: fwd),
+        type: SSHWire.Agent.failure, "forwarded connection refuses to sign")
+    h.eqFramed(
+        handleRequest(
+            type: SSHWire.Agent.addSmartcardKey,
+            payload: SSHWire.string(keyPath) + SSHWire.string(""), state: refusing, conn: fwd),
+        type: SSHWire.Agent.failure, "forwarded connection refuses add")
+    do {
+        let (t, p) = try SSHWire.splitFramed(
+            handleRequest(type: SSHWire.Agent.requestIdentities, payload: Data(), state: refusing, conn: fwd))
+        h.eq(t, SSHWire.Agent.identitiesAnswer, "forwarded identities answer type")
+        var r = ByteReader(p)
+        h.eq(try r.readUInt32(), 0, "forwarded connection presents no identities")
+    } catch { h.fail("forwarded-identities threw \(error)") }
+
+    // Downgrade defense: the real forwarded flow is bind(fwd=1) THEN bind(fwd=0) (the remote's
+    // own user-auth, or a malicious remote injecting it). The forwarding latch must hold, so the
+    // sign is still refused.
+    let downgrade = AgentConnection()
+    _ = handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(1), state: refusing, conn: downgrade)
+    _ = handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(0), state: refusing, conn: downgrade)
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: goodSign, state: refusing, conn: downgrade),
+        type: SSHWire.Agent.failure, "forwarding latch: bind(1) then bind(0) still refuses to sign")
+
+    // Opt-in: with forwarding allowed, the same forwarded connection signs.
+    let allowing = AgentState(backend: backend, refuseForwarding: false)
+    allowing.add(keyPath)
+    let fwdAllowed = AgentConnection()
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.extensionRequest, payload: bind(1), state: allowing, conn: fwdAllowed),
+        type: SSHWire.Agent.success, "session-bind (forwarded, allowed) acks")
+    h.eqFramed(
+        handleRequest(type: SSHWire.Agent.signRequest, payload: goodSign, state: allowing, conn: fwdAllowed),
+        type: SSHWire.Agent.signResponse, "allowed forwarding signs")
 }
 #endif
