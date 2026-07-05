@@ -35,6 +35,7 @@
 .Cm setup-git-signing
 .Op Fl -sign-tags
 .Op Fl -email Ar email
+.Op Fl -github-user Ar user
 .Op Fl -key Ar keyfile
 .Op Fl y
 .Op Fl -force
@@ -198,24 +199,41 @@ existing signing configuration without
 It never sets
 .Cm commit.gpgsign ,
 so ordinary commits are not signed and never prompt.
-It also never sets
-.Cm user.name
-or
-.Cm user.email ,
-and never prompts for an email \(en it derives the signer from git's own
-committer identity.
-For GitHub's Verified badge, that identity's email must be a verified
-GitHub email (the tagger line is what GitHub checks).
-.Bl -tag -width "-sign-tags"
+It never sets
+.Cm user.name .
+For GitHub's Verified badge the tag's email must be a verified GitHub email
+(the tagger line is what GitHub checks).
+If you already have a
+.Cm user.email
+configured (locally or globally) it is left untouched; otherwise it asks for
+your GitHub username (defaulting to the owner of your
+.Cm origin
+remote) and sets a repo-local
+.Cm user.email
+of
+.Ar user Ns @users.noreply.github.com \(en
+a verified no-reply address, with no token or API call.
+.Bl -tag -width "-github-user user"
 .It Fl -sign-tags
 Also set
 .Cm tag.gpgsign=true
 so annotated tags are signed automatically.
 .It Fl -email Ar email
-Override the
+Signer email: the
 .Pa allowed_signers
-principal.
-The default is git's own committer email, and it is never prompted for.
+principal, and \(en if you have no
+.Cm user.email \(en
+the value written to it.
+Overrides the derived no-reply address.
+.It Fl -github-user Ar user
+GitHub username to derive
+.Ar user Ns @users.noreply.github.com
+from (default: the
+.Cm origin
+remote's owner).
+Only consulted when you have no
+.Cm user.email
+configured.
 .It Fl -key Ar keyfile
 Public key to sign with (default
 .Pa ~/.ssh/id_sod.pub ) .
@@ -273,8 +291,9 @@ The Secure Enclave requires Apple Silicon or a T2 chip.
 never sets
 .Cm commit.gpgsign ,
 never touches
-.Cm user.name
-or
-.Cm user.email ,
-and never overwrites an existing signing configuration without
+.Cm user.name ,
+only sets
+.Cm user.email
+when none is configured anywhere (it never overwrites an existing one), and
+never overwrites an existing signing configuration without
 .Fl -force .

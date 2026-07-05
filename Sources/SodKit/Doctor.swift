@@ -38,7 +38,7 @@ public struct Doctor: ParsableCommand {
     @Option(
         name: .long,
         help: ArgumentHelp(
-            "GitHub username for --github (else inferred from gh / the origin remote).", valueName: "user"))
+            "GitHub username for --github (else the origin remote's owner).", valueName: "user"))
     var githubUser: String?
 
     public init() {}
@@ -458,26 +458,12 @@ private func checkGitHubSigningKey(_ r: inout Report, pubPath: String, user: Str
     }
 }
 
-/// Best-effort GitHub username: `gh api user` if gh is present/authed, else the owner from
-/// the `origin` remote URL.
+/// Best-effort GitHub username: the owner from the `origin` remote URL. We never spawn `gh`
+/// to look this up (it's the repo owner, so it's only your username for personal repos — pass
+/// --github-user to override for an org or fork remote).
 private func inferGitHubUser() -> String? {
-    if let gh = firstOnPath("gh") {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: gh)
-        p.arguments = ["api", "user", "--jq", ".login"]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        if (try? p.run()) != nil {
-            p.waitUntilExit()
-            if p.terminationStatus == 0 {
-                let s = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !s.isEmpty { return s }
-            }
-        }
-    }
-    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout
+        .trimmingCharacters(in: .whitespacesAndNewlines)
     return gitHubOwnerFromRemote(remote)
 }
 

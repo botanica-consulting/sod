@@ -68,13 +68,21 @@ public func gitHubOwnerFromRemote(_ remote: String) -> String? {
     return String(owner)
 }
 
-/// Extract the email from a git ident string like `Name <email> 1700000000 +0000`.
-public func emailFromIdent(_ ident: String) -> String? {
-    guard let lt = ident.firstIndex(of: "<") else { return nil }
-    let after = ident.index(after: lt)
-    guard let gt = ident[after...].firstIndex(of: ">") else { return nil }
-    let email = String(ident[after..<gt])
-    return email.isEmpty ? nil : email
+/// Whether `s` is a syntactically valid GitHub username (login): 1–39 chars, ASCII
+/// alphanumerics and single hyphens, no leading/trailing hyphen. Rejects garbage before we
+/// build an email out of it.
+public func isPlausibleGitHubUser(_ s: String) -> Bool {
+    guard (1...39).contains(s.count), !s.hasPrefix("-"), !s.hasSuffix("-"), !s.contains("--") else { return false }
+    return s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+}
+
+/// Build the GitHub no-reply email `<user>@users.noreply.github.com` for a username. This bare
+/// form (not the `id+user@` variant) is a verified email on the account, so tags/commits stamped
+/// with it earn GitHub's "Verified" badge — no API call needed to look up the numeric id. nil if
+/// the username is implausible.
+public func githubNoReplyEmail(_ user: String) -> String? {
+    guard isPlausibleGitHubUser(user) else { return nil }
+    return "\(user)@users.noreply.github.com"
 }
 
 // MARK: - plan model (pure)
@@ -85,39 +93,46 @@ public struct GitSigningState: Equatable {
     public var gpgFormat: String?
     public var signingKey: String?
     public var allowedSignersFile: String?
+    public var userEmail: String?  // MERGED (local→global→system); nil means no identity anywhere
     public var tagSign: Bool
     public var commitSignOn: Bool  // reported only — never set by us
     public var allowedSignersHasLine: Bool
     public init(
         gpgFormat: String? = nil, signingKey: String? = nil, allowedSignersFile: String? = nil,
-        tagSign: Bool = false, commitSignOn: Bool = false, allowedSignersHasLine: Bool = false
+        userEmail: String? = nil, tagSign: Bool = false, commitSignOn: Bool = false,
+        allowedSignersHasLine: Bool = false
     ) {
         self.gpgFormat = gpgFormat
         self.signingKey = signingKey
         self.allowedSignersFile = allowedSignersFile
+        self.userEmail = userEmail
         self.tagSign = tagSign
         self.commitSignOn = commitSignOn
         self.allowedSignersHasLine = allowedSignersHasLine
     }
 }
 
-/// The target configuration. We deliberately do NOT model `user.name`/`user.email`: git
-/// synthesizes an identity for the tag on its own, so we never set or prompt for one — we only
-/// need the effective email to use as the `allowed_signers` principal.
+/// The target configuration. `email` is the `allowed_signers` principal (so local `git tag -v`
+/// verifies). `userEmailToSet`, when non-nil, is a value to write to repo-local `user.email`
+/// *only if the user has no identity configured anywhere* — so tags carry a GitHub-verified
+/// email and earn the "Verified" badge. We never touch `user.name`, and never overwrite an
+/// existing `user.email`.
 public struct GitSigningDesired: Equatable {
     public let pubPath: String
     public let allowedSignersPath: String
     public let email: String
     public let allowedSignersLine: String
+    public let userEmailToSet: String?
     public let signTags: Bool
     public init(
         pubPath: String, allowedSignersPath: String, email: String, allowedSignersLine: String,
-        signTags: Bool
+        userEmailToSet: String? = nil, signTags: Bool
     ) {
         self.pubPath = pubPath
         self.allowedSignersPath = allowedSignersPath
         self.email = email
         self.allowedSignersLine = allowedSignersLine
+        self.userEmailToSet = userEmailToSet
         self.signTags = signTags
     }
 }
@@ -188,6 +203,25 @@ public func computeGitSigningPlan(
                 describe: "append to \(desired.allowedSignersPath):\n        \(desired.allowedSignersLine)"))
     }
 
+    // user.email — set a repo-local identity ONLY when none is configured anywhere, so tags
+    // carry a GitHub-verified email (the badge checks the tagger line). We never overwrite an
+    // existing identity, and never touch user.name.
+    if let want = desired.userEmailToSet {
+        if let have = current.userEmail {
+            items.append(.satisfied("user.email already \(have) (left as-is)"))
+        } else {
+            items.append(
+                .change(
+                    .setConfig(key: "user.email", value: want),
+                    describe: "git config --local user.email \(want)   (so GitHub shows \"Verified\")"))
+        }
+    } else if current.userEmail == nil {
+        items.append(
+            .note(
+                "user.email is unset — GitHub's \"Verified\" badge needs a verified email on the tag;"
+                    + " pass --github-user <you> or --email to set one"))
+    }
+
     // tag.gpgsign — only when explicitly requested.
     if desired.signTags {
         if current.tagSign {
@@ -222,8 +256,15 @@ public struct SetupGitSigning: ParsableCommand {
             plan, and asks before changing anything; it is idempotent and refuses to overwrite
             an existing signing config (e.g. GPG) without --force. It sets gpg.format=ssh,
             user.signingkey, gpg.ssh.allowedSignersFile, and appends your key to the
-            allowed_signers file. It never touches your git identity (user.name/user.email) and
-            never prompts for an email — it derives the signer from git's own committer identity.
+            allowed_signers file.
+
+            For GitHub's green "Verified" badge the tag's email must be a verified GitHub email.
+            If you already have a user.email configured (locally or globally) it is left
+            untouched. If you have none, it asks for your GitHub username (defaulting to your
+            origin remote's owner) and sets a repo-local user.email of
+            <user>@users.noreply.github.com — a verified no-reply address, no token or API call
+            needed. It never sets user.name.
+
             It never sets commit.gpgsign, so ordinary commits are not signed and never prompt;
             sign deliberately with `git commit -S` / `git tag -s`, or opt into annotated tags
             with --sign-tags.
@@ -236,8 +277,16 @@ public struct SetupGitSigning: ParsableCommand {
     @Option(
         name: .long,
         help: ArgumentHelp(
-            "Override the allowed_signers principal (default: git's committer email).", valueName: "email"))
+            "Signer email (allowed_signers principal; also set as user.email if you have none).",
+            valueName: "email"))
     var email: String?
+
+    @Option(
+        name: .long,
+        help: ArgumentHelp(
+            "GitHub username, to derive <user>@users.noreply.github.com (default: origin owner).",
+            valueName: "user"))
+    var githubUser: String?
 
     @Option(name: .long, help: ArgumentHelp("Public key file (default ~/.ssh/id_sod.pub).", valueName: "keyfile"))
     var key: String?
@@ -281,19 +330,32 @@ public struct SetupGitSigning: ParsableCommand {
             throw fail("\(pubPath) is not a valid SSH public-key line (point --key at the .pub, not the opaque handle)")
         }
 
-        // 4. Signer email for the allowed_signers principal. We never set user.name/user.email
-        //    and never prompt: git already synthesizes an identity for the tag (config → env →
-        //    GECOS + hostname), so we derive the exact email it will stamp and match it, so local
-        //    `git tag -v` verifies. (The GitHub Verified badge is separate — it checks the tagger
-        //    email, i.e. git's user.email, so that must be a verified GitHub email.)
+        // 4. Resolve the signer identity. `effectiveEmail` is the allowed_signers principal, so
+        //    local `git tag -v` verifies. `userEmailToSet`, when non-nil, is written to
+        //    repo-local user.email ONLY if none is configured anywhere — so tags carry a
+        //    GitHub-verified email and earn the Verified badge. Precedence: --email > an existing
+        //    (merged) user.email, left untouched > a <user>@users.noreply.github.com derived from
+        //    your GitHub username (no token or API call).
+        let cfgEmail = GitRunner.configGetMerged("user.email")
         let effectiveEmail: String
+        let userEmailToSet: String?
         if let flag = email {
             guard isPlausibleEmail(flag) else { throw fail("implausible --email: \(flag)") }
             effectiveEmail = flag
-        } else if let derived = gitCommitterEmail() {
+            userEmailToSet = (cfgEmail == nil) ? flag : nil
+        } else if let have = cfgEmail {
+            effectiveEmail = have
+            userEmailToSet = nil
+        } else if let user = resolveGitHubUser(flag: githubUser, yesMode: yes) {
+            guard let derived = githubNoReplyEmail(user) else {
+                throw fail("implausible GitHub username: \(user) — pass --email instead")
+            }
             effectiveEmail = derived
+            userEmailToSet = derived
         } else {
-            throw fail("git could not determine your identity — set user.email or pass --email")
+            throw fail(
+                "no user.email configured and no GitHub username to derive one — "
+                    + "pass --github-user <you> or --email <you@example.com>")
         }
 
         // 5. Build the desired config.
@@ -303,14 +365,15 @@ public struct SetupGitSigning: ParsableCommand {
         }
         let desired = GitSigningDesired(
             pubPath: pubPath, allowedSignersPath: allowedSignersPath, email: effectiveEmail,
-            allowedSignersLine: signersLine, signTags: signTags)
+            allowedSignersLine: signersLine, userEmailToSet: userEmailToSet, signTags: signTags)
 
-        // 6. Read current state (repo-local) and compute the plan (pure).
+        // 6. Read current state (repo-local; user.email is read MERGED) and compute the plan.
         let signersContents = (try? String(contentsOfFile: allowedSignersPath, encoding: .utf8)) ?? ""
         let current = GitSigningState(
             gpgFormat: GitRunner.configGet("gpg.format"),
             signingKey: GitRunner.configGet("user.signingkey"),
             allowedSignersFile: GitRunner.configGet("gpg.ssh.allowedSignersFile"),
+            userEmail: cfgEmail,
             tagSign: gitConfigBool("tag.gpgsign"),
             commitSignOn: gitConfigBool("commit.gpgsign"),
             allowedSignersHasLine: allowedSignersContains(contents: signersContents, line: signersLine))
@@ -347,12 +410,31 @@ private func gitConfigBool(_ key: String) -> Bool {
     ["true", "yes", "on", "1"].contains((GitRunner.configGet(key) ?? "").lowercased())
 }
 
-/// The email git will stamp on the tag — its effective committer identity (config → env →
-/// auto-derived from GECOS + hostname). We never set it; we only match it in allowed_signers.
-private func gitCommitterEmail() -> String? {
-    let r = GitRunner.run(["var", "GIT_COMMITTER_IDENT"])
-    guard r.ok else { return nil }
-    return emailFromIdent(r.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+/// The `origin` remote's GitHub owner (nil if there's no github.com origin) — the best local
+/// guess at your GitHub username, used to pre-fill the prompt and as the -y default.
+private func originGitHubOwner() -> String? {
+    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return gitHubOwnerFromRemote(remote)
+}
+
+/// Resolve the GitHub username used to derive <user>@users.noreply.github.com: an explicit
+/// --github-user, else (interactive) a prompt pre-filled with the origin owner, else (-y or a
+/// non-TTY) the origin owner as the accepted default. nil when there's nothing to go on.
+private func resolveGitHubUser(flag: String?, yesMode: Bool) -> String? {
+    if let flag { return flag }
+    let originOwner = originGitHubOwner()
+    if yesMode || isatty(0) == 0 { return originOwner }
+    return promptGitHubUser(default: originOwner)
+}
+
+/// Prompt for a GitHub username, offering `def` (the origin owner) as the default. Returns the
+/// default on an empty line; nil only when there's no default and nothing was typed.
+private func promptGitHubUser(default def: String?) -> String? {
+    let suffix = def.map { " [\($0)]" } ?? ""
+    FileHandle.standardOutput.write(Data("GitHub username\(suffix): ".utf8))
+    let raw = (readLine() ?? "").trimmingCharacters(in: .whitespaces)
+    return raw.isEmpty ? def : raw
 }
 
 private func renderPlan(_ plan: GitSigningPlan) {
@@ -429,7 +511,12 @@ private func printFooter(desired: GitSigningDesired) {
     if desired.signTags { print("Annotated tags will be signed automatically (tag.gpgsign=true).") }
     print("The sod agent must be running for Touch ID to work (sd install / sd doctor).")
     print("")
-    print("Signing as \(desired.email). For GitHub's green \"Verified\" badge, git's own")
-    print("user.email must be a verified GitHub email (that's the tagger line GitHub checks),")
-    print("and the key must be registered as a Signing key — check:  sd doctor --github")
+    print("Signing as \(desired.email).")
+    if desired.userEmailToSet != nil {
+        print("Set as this repo's user.email — a verified GitHub no-reply, so tags show \"Verified\".")
+    } else {
+        print("For GitHub's \"Verified\" badge that must be a verified GitHub email (the tagger line")
+        print("GitHub checks) — re-run with --email <you>@users.noreply.github.com if it isn't.")
+    }
+    print("The key must also be registered as a GitHub Signing key — check:  sd doctor --github")
 }

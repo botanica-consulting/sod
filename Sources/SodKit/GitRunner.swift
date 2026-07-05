@@ -72,6 +72,16 @@ enum GitRunner {
         return v.isEmpty ? nil : v
     }
 
+    /// `git config --get <key>` — reads the MERGED / effective value (local → global → system).
+    /// Used to decide whether the user already has an identity (e.g. a global `user.email`) that
+    /// we must respect rather than shadow with a repo-local one. Returns nil when unset.
+    static func configGetMerged(_ key: String, in repo: URL? = nil) -> String? {
+        let r = run(["config", "--get", key], in: repo)
+        guard r.ok else { return nil }
+        let v = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
+
     /// `git config --local <key> <value>` — writes to the current repo's `.git/config`.
     @discardableResult
     static func configSet(_ key: String, _ value: String, in repo: URL? = nil) -> Bool {

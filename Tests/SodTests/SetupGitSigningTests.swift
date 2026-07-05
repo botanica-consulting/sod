@@ -49,10 +49,20 @@ func runSetupGitSigningSuite(_ h: Harness) {
     h.ok(!isPlausibleEmail("a b@c.d"), "email: whitespace")
     h.ok(!isPlausibleEmail("a@b"), "email: domain without a dot")
 
-    // --- emailFromIdent (extract the email git will stamp) ---
-    h.eq(emailFromIdent("Alon Livne <a@b.com> 1700000000 +0000"), "a@b.com", "ident: extracts email")
-    h.ok(emailFromIdent("no angle brackets here") == nil, "ident: no <> → nil")
-    h.ok(emailFromIdent("Name <> 1 +0") == nil, "ident: empty email → nil")
+    // --- isPlausibleGitHubUser ---
+    h.ok(isPlausibleGitHubUser("0xa10"), "ghuser: alphanumeric")
+    h.ok(isPlausibleGitHubUser("botanica-consulting"), "ghuser: internal hyphen")
+    h.ok(!isPlausibleGitHubUser(""), "ghuser: empty → false")
+    h.ok(!isPlausibleGitHubUser("-nope"), "ghuser: leading hyphen")
+    h.ok(!isPlausibleGitHubUser("nope-"), "ghuser: trailing hyphen")
+    h.ok(!isPlausibleGitHubUser("a--b"), "ghuser: double hyphen")
+    h.ok(!isPlausibleGitHubUser("has space"), "ghuser: whitespace")
+    h.ok(!isPlausibleGitHubUser("bad@name"), "ghuser: symbol")
+    h.ok(!isPlausibleGitHubUser(String(repeating: "a", count: 40)), "ghuser: over 39 chars")
+
+    // --- githubNoReplyEmail (bare no-reply form; no id lookup / API) ---
+    h.eq(githubNoReplyEmail("0xa10"), "0xa10@users.noreply.github.com", "noreply: builds bare form")
+    h.ok(githubNoReplyEmail("bad name") == nil, "noreply: implausible username → nil")
 
     // --- gitHubOwnerFromRemote ---
     h.eq(gitHubOwnerFromRemote("git@github.com:botanica-consulting/sod.git"), "botanica-consulting", "remote: scp form")
@@ -64,11 +74,12 @@ func runSetupGitSigningSuite(_ h: Harness) {
     // --- computeGitSigningPlan ---
     let pubPath = "/Users/me/.ssh/id_sod.pub"
     let signersPath = "/Users/me/.ssh/allowed_signers"
-    func desired(signTags: Bool = false, email: String = "me@x.com") -> GitSigningDesired {
+    func desired(signTags: Bool = false, email: String = "me@x.com", userEmailToSet: String? = nil) -> GitSigningDesired
+    {
         GitSigningDesired(
             pubPath: pubPath, allowedSignersPath: signersPath, email: email,
             allowedSignersLine: "\(email) ecdsa-sha2-nistp256 QUJDRA==",
-            signTags: signTags)
+            userEmailToSet: userEmailToSet, signTags: signTags)
     }
     func setsKey(_ plan: GitSigningPlan, _ key: String) -> Bool {
         plan.changes.contains { if case let .setConfig(k, _) = $0 { return k == key } else { return false } }
@@ -117,6 +128,18 @@ func runSetupGitSigningSuite(_ h: Harness) {
         !computeGitSigningPlan(current: hasLine, desired: desired(), force: false).changes
             .contains(.appendAllowedSigners(path: signersPath, line: line)),
         "plan(signers has line): no append")
+
+    // user.email — derived value written only when the user has no identity anywhere
+    let noReply = "me@users.noreply.github.com"
+    let setsEmail = computeGitSigningPlan(
+        current: GitSigningState(), desired: desired(userEmailToSet: noReply), force: false)
+    h.ok(
+        setsEmail.changes.contains(.setConfig(key: "user.email", value: noReply)),
+        "plan(no identity + derived): sets user.email")
+    let keepsEmail = computeGitSigningPlan(
+        current: GitSigningState(userEmail: "have@x.com"), desired: desired(userEmailToSet: noReply), force: false)
+    h.ok(!setsKey(keepsEmail, "user.email"), "plan(user.email already set): never overwrites it")
+    h.ok(keepsEmail.items.contains(.satisfied("user.email already have@x.com (left as-is)")), "plan: notes it left it")
 
     // --sign-tags on → sets tag.gpgsign
     let tags = computeGitSigningPlan(current: GitSigningState(), desired: desired(signTags: true), force: false)
