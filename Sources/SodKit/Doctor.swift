@@ -32,15 +32,6 @@ public struct Doctor: ParsableCommand {
             """
     )
 
-    @Flag(name: .long, help: "Also check that GitHub has your key registered as a signing key (network).")
-    var github = false
-
-    @Option(
-        name: .long,
-        help: ArgumentHelp(
-            "GitHub username for --github (else the origin remote's owner).", valueName: "user"))
-    var githubUser: String?
-
     public init() {}
 
     public func run() throws {
@@ -227,7 +218,8 @@ public struct Doctor: ParsableCommand {
         if let gh = firstOnPath("gh") {
             r.pass("gh installed", gh)
         } else {
-            r.warn("gh installed", "not found — optional; only `sd doctor --github` needs it", hint: "brew install gh")
+            r.warn(
+                "gh installed", "not found — optional; handy for registering your signing key", hint: "brew install gh")
         }
         if GitRunner.isInstalled() {
             if GitRunner.insideWorkTree() {
@@ -235,7 +227,6 @@ public struct Doctor: ParsableCommand {
             } else {
                 r.pass("git SSH signing", "run inside a repo to check (configured per-repo)")
             }
-            if github { checkGitHubSigningKey(&r, pubPath: pubPath, user: githubUser) }
         }
 
         r.summary()
@@ -399,72 +390,6 @@ private func checkSigningConfig(_ r: inout Report, pubPath: String) {
             "commit.gpgsign", "on — every commit will prompt for Touch ID",
             hint: "unset:  git config --unset commit.gpgsign")
     }
-}
-
-/// Thread-safe-by-protocol result box for the async GitHub query. Written only inside the
-/// URLSession completion (before signaling the semaphore) and read only after the wait — the
-/// semaphore supplies the happens-before, so `@unchecked Sendable` is sound.
-private final class GitHubKeysResult: @unchecked Sendable {
-    var keys: [String] = []
-    var error: String?
-}
-
-/// Probe the PUBLIC `GET /users/{user}/ssh_signing_keys` endpoint (no auth/token/scope) and
-/// compare each registered key's blob to id_sod's. `pass` on a match; `warn` otherwise.
-private func checkGitHubSigningKey(_ r: inout Report, pubPath: String, user: String?) {
-    guard let pub = try? String(contentsOfFile: pubPath, encoding: .utf8),
-        let (_, ourBlob) = parsePubKeyTypeBlob(pub)
-    else {
-        r.warn("GitHub signing key", "can't read \(pubPath)")
-        return
-    }
-    guard let username = user ?? inferGitHubUser() else {
-        r.warn("GitHub signing key", "couldn't determine your GitHub username", hint: "pass --github-user <you>")
-        return
-    }
-    guard let url = URL(string: "https://api.github.com/users/\(username)/ssh_signing_keys") else {
-        r.warn("GitHub signing key", "invalid username: \(username)")
-        return
-    }
-    var request = URLRequest(url: url)
-    request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-    request.timeoutInterval = 10
-
-    let box = GitHubKeysResult()
-    let sem = DispatchSemaphore(value: 0)
-    URLSession.shared.dataTask(with: request) { data, resp, err in
-        defer { sem.signal() }
-        if let err { box.error = err.localizedDescription; return }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard code == 200, let data else { box.error = "HTTP \(code)"; return }
-        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            box.keys = arr.compactMap { $0["key"] as? String }
-        }
-    }.resume()
-    guard sem.wait(timeout: .now() + 15) == .success else {
-        r.warn("GitHub signing key", "timed out querying GitHub")
-        return
-    }
-    if let e = box.error {
-        r.warn("GitHub signing key", "could not query GitHub for \(username): \(e)")
-        return
-    }
-    if box.keys.contains(where: { parsePubKeyTypeBlob($0)?.blob == ourBlob }) {
-        r.pass("GitHub signing key", "\(username) has id_sod registered as a signing key")
-    } else {
-        r.warn(
-            "GitHub signing key", "\(username) has \(box.keys.count) signing key(s), none matching id_sod",
-            hint: "add it:  gh ssh-key add ~/.ssh/id_sod.pub --type signing   (or https://github.com/settings/ssh/new)")
-    }
-}
-
-/// Best-effort GitHub username: the owner from the `origin` remote URL. We never spawn `gh`
-/// to look this up (it's the repo owner, so it's only your username for personal repos — pass
-/// --github-user to override for an org or fork remote).
-private func inferGitHubUser() -> String? {
-    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    return gitHubOwnerFromRemote(remote)
 }
 
 /// Ask the agent for its loaded identities (request 11 → answer 12). Returns the key

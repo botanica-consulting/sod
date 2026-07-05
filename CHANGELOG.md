@@ -24,8 +24,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   loaded in it, and whether `SSH_AUTH_SOCK` is set in the current shell and exported
   from its startup file — with actionable hints and a non-zero exit when unhealthy.
   Also checks that `git`/`gh` are installed and, inside a repo, that its SSH-signing
-  config is coherent; opt-in `--github` confirms the key is registered as a GitHub
-  *signing* key (public API, no token).
+  config is coherent.
 - `sd setup-git-signing`: configure the current repo to sign git tags/commits with your
   Secure-Enclave key over SSH — sets `gpg.format=ssh`, `user.signingkey`, and
   `gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Prints a plan and

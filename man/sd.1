@@ -29,8 +29,6 @@
 .Cm uninstall
 .Nm
 .Cm doctor
-.Op Fl -github
-.Op Fl -github-user Ar user
 .Nm
 .Cm setup-git-signing
 .Op Fl -sign-tags
@@ -169,18 +167,6 @@ and
 are installed and, inside a repository, whether that repo's SSH-signing
 config is coherent.
 Exits non-zero if any check fails.
-.Bl -tag -width "-github-user user"
-.It Fl -github
-Also query GitHub's public API to confirm your key is registered as a
-.Em signing
-key (network access).
-.It Fl -github-user Ar user
-GitHub username for
-.Fl -github
-(otherwise inferred from
-.Xr gh 1
-or the origin remote).
-.El
 .Ss sd setup-git-signing
 Configure the current repository to sign git tags and commits with your sod key
 over SSH.

@@ -64,13 +64,6 @@ func runSetupGitSigningSuite(_ h: Harness) {
     h.eq(githubNoReplyEmail("0xa10"), "0xa10@users.noreply.github.com", "noreply: builds bare form")
     h.ok(githubNoReplyEmail("bad name") == nil, "noreply: implausible username → nil")
 
-    // --- gitHubOwnerFromRemote ---
-    h.eq(gitHubOwnerFromRemote("git@github.com:botanica-consulting/sod.git"), "botanica-consulting", "remote: scp form")
-    h.eq(
-        gitHubOwnerFromRemote("https://github.com/botanica-consulting/sod"), "botanica-consulting", "remote: https form"
-    )
-    h.ok(gitHubOwnerFromRemote("git@gitlab.com:owner/repo.git") == nil, "remote: non-github → nil")
-
     // --- computeGitSigningPlan ---
     let pubPath = "/Users/me/.ssh/id_sod.pub"
     let signersPath = "/Users/me/.ssh/allowed_signers"

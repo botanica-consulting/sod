@@ -59,15 +59,6 @@ public func isPlausibleEmail(_ s: String) -> Bool {
     return true
 }
 
-/// Extract the owner from a GitHub remote URL — `git@github.com:owner/repo.git` or
-/// `https://github.com/owner/repo(.git)`. nil if it isn't a github.com remote.
-public func gitHubOwnerFromRemote(_ remote: String) -> String? {
-    guard let r = remote.range(of: "github.com") else { return nil }
-    let tail = remote[r.upperBound...].drop { $0 == ":" || $0 == "/" }
-    guard let owner = tail.split(separator: "/").first, !owner.isEmpty else { return nil }
-    return String(owner)
-}
-
 /// Whether `s` is a syntactically valid GitHub username (login): 1–39 chars, ASCII
 /// alphanumerics and single hyphens, no leading/trailing hyphen. Rejects garbage before we
 /// build an email out of it.
@@ -508,5 +499,6 @@ private func printFooter(desired: GitSigningDesired) {
         print("For GitHub's \"Verified\" badge that must be a verified GitHub email (the tagger line")
         print("GitHub checks) — re-run with --email <you>@users.noreply.github.com if it isn't.")
     }
-    print("The key must also be registered as a GitHub Signing key — check:  sd doctor --github")
+    print("The key must also be registered as a GitHub Signing key:")
+    print("    gh ssh-key add ~/.ssh/id_sod.pub --type signing   (or https://github.com/settings/ssh/new)")
 }

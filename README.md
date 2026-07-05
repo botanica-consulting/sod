@@ -211,7 +211,9 @@ GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.gith
 an existing `user.email` is left untouched). Under `-y` it can't prompt, so pass `--github-user`
 or `--email` (don't know your username? `gh api user --jq .login`). You also need the *same* key
 registered as a **Signing key** on GitHub (`gh ssh-key add ~/.ssh/id_sod.pub --type signing`).
-Confirm with `sd doctor --github`.
+To confirm it's registered: `gh ssh-key list`, your [SSH keys settings](https://github.com/settings/keys),
+or the public API — `curl -s https://api.github.com/users/<you>/ssh_signing_keys`. The definitive
+check is the **Verified** badge on your first signed tag.
 
 ## How it works
 
