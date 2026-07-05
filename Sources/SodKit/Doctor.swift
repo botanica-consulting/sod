@@ -32,6 +32,11 @@ public struct Doctor: ParsableCommand {
             """
     )
 
+    // Hidden: dev diagnostics for people running more than one sd build (e.g. a local build
+    // alongside the installed one). Off for normal users so `sd doctor` output stays stable.
+    @Flag(name: .long, help: ArgumentHelp(visibility: .private))
+    var dev = false
+
     public init() {}
 
     public func run() throws {
@@ -206,6 +211,25 @@ public struct Doctor: ParsableCommand {
                 hint:
                     "install it (adds /usr/local/bin/sd):  brew install botanica-consulting/tap/sod  — or: make install"
             )
+        }
+
+        // Dev-only (--dev, hidden): flag when the login agent runs a DIFFERENT sd binary than the
+        // one you invoked — the agent-side mirror of the "sd on PATH" check. Normal installs match
+        // (symlinks resolved); a mismatch means your keys are served by some other build, so a
+        // freshly built agent/signing change won't take effect until you reload.
+        if dev {
+            let running = (exe as NSString).resolvingSymlinksInPath
+            if let agentBin = plistInfo?.binary {
+                if (agentBin as NSString).resolvingSymlinksInPath == running {
+                    r.pass("Agent binary (dev)", "login agent runs this same sd")
+                } else {
+                    r.warn(
+                        "Agent binary (dev)", "login agent runs a different sd: \(agentBin)",
+                        hint: "reload the agent with this build:  sd install   (or run one: sd ssh-agent -a <socket>)")
+                }
+            } else {
+                r.warn("Agent binary (dev)", "no login agent installed to compare against")
+            }
         }
 
         // 10. Git commit/tag signing (optional — warns, never fails; SSH-only users unaffected).
