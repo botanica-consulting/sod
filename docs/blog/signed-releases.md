@@ -82,48 +82,59 @@ Assumes sod is installed and running — if not, `sd install` and
 [the Quickstart](https://github.com/botanica-consulting/sod#quickstart) get you there in a
 minute. You should already be able to `ssh -T git@github.com` and see your username.
 
-**1. Enlist the sod key as a GitHub *signing* key.** It's already your auth key; add the
-same public key again, this time as a signing key:
+Setup has two halves: a one-time step on **GitHub** (tell it your key may *sign*), and a
+one-command step in your **repo** (point git's SSH signing at the sod key). sod deliberately
+never touches your GitHub account, so the GitHub half is yours to do — by CLI or in the web UI.
+
+### 1. Register the sod key as a GitHub *signing* key (GitHub-side, manual)
+
+GitHub keeps *authentication* keys and *signing* keys in separate lists — the same key can be
+in both. Your sod key is already your auth key; add it a second time, this time as a signing
+key. That registration is what turns your signatures into the green **Verified** badge
+(provided the tagger email is one of your verified GitHub emails).
+
+**With the `gh` CLI.** Registering a *signing* key needs a scope your token probably doesn't
+have yet, so grant it once, then add the key:
 
 ```sh
+gh auth refresh -h github.com -s admin:ssh_signing_key
 gh ssh-key add ~/.ssh/id_sod.pub --type signing --title "sod (Secure Enclave)"
 ```
 
-(GitHub keeps authentication keys and signing keys in separate lists; the same key can be
-in both. The signing key is what turns your signatures into the green **Verified** badge —
-provided the tagger email is one of your verified GitHub emails.)
+**Or in the web UI** — no extra scope, nothing to install:
 
-**2. Point git at it for SSH signing:**
+1. Copy your public key: `pbcopy < ~/.ssh/id_sod.pub`.
+2. Go to **Settings → SSH and GPG keys** and click **New SSH key**.
+   [screenshot: the "SSH and GPG keys" settings page, "New SSH key" button]
+3. Set **Key type** to **Signing Key** (*not* Authentication Key), paste the key, give it a
+   title, and click **Add SSH key**.
+   [screenshot: the New-SSH-key form with Key type = Signing Key and the key pasted]
+4. It now shows under **SSH keys**, labelled as a signing key.
+   [screenshot: the key listed with its "Signing Key" label]
 
-```sh
-git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/id_sod.pub
-```
+### 2. Point this repo's git at the sod key (one command)
 
-Note we point `user.signingkey` at the **public** key (`.pub`). That's deliberate: it tells
-`ssh-keygen` to sign via the agent rather than looking for a private key on disk — which is
-exactly what we want, since the private key lives in the Secure Enclave.
-
-**3. Let git verify signatures locally**, and add yourself to the allow-list:
+Everything on the git side is a single command, run **inside the repo** you cut releases from:
 
 ```sh
-git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
-printf '%s %s\n' "$(git config --get user.email)" "$(cut -d' ' -f1-2 ~/.ssh/id_sod.pub)" \
-  >> ~/.ssh/allowed_signers
+sd setup-git-signing
 ```
 
-The `allowed_signers` format is `<email> <keytype> <key>` — `cut -d' ' -f1-2` drops the
-trailing comment so you get just the type and the key material.
+It prints exactly what it will change, asks before touching anything, and is idempotent
+(re-run it any time). Under the hood it sets, **for this repo**, `gpg.format=ssh`,
+`user.signingkey=~/.ssh/id_sod.pub` — pointing at the **public** key is deliberate: it tells
+`ssh-keygen` to sign via the agent rather than a private key on disk, which is exactly what we
+want since the private half lives in the Secure Enclave — and `gpg.ssh.allowedSignersFile`,
+and it appends your key to `~/.ssh/allowed_signers` so local verification works. It uses this
+repo's `user.email` as the signer (and asks if that's unset), so make sure it's one of your
+verified GitHub emails. It **never** sets `commit.gpgsign`, so ordinary commits don't prompt;
+add `--sign-tags` if you want every annotated tag signed automatically.
 
-**4. (Optional) sign every annotated tag automatically**, so you can drop the `-s`:
+[resource: terminal capture — `sd setup-git-signing` showing its plan and the confirm prompt]
 
-```sh
-git config --global tag.gpgsign true
-```
-
-That's the whole setup. Notice what you *didn't* do: no `gpg --gen-key`, no keyserver, no
-expiry to babysit, no passphrase to type or stash. The key already existed; you just gave
-it a second role.
+Notice what you *didn't* do: no `gpg --gen-key`, no keyserver, no expiry to babysit, no
+passphrase, and no global git config to reason about. The key already existed; you just gave
+it a second role in this repo.
 
 ## Cutting a release: the tap that matters
 
