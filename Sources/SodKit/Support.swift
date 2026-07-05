@@ -14,6 +14,14 @@ func executablePath() -> String {
     return String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
+/// ANSI color helper — paints only when the given fd is a TTY (so piped/redirected output
+/// stays clean). Used by the `sd setup-git-signing` plan output.
+struct AnsiPaint {
+    let on: Bool
+    init(_ fd: Int32 = 1) { on = isatty(fd) != 0 }
+    func callAsFunction(_ s: String, _ code: String) -> String { on ? "\u{1B}[\(code)m\(s)\u{1B}[0m" : s }
+}
+
 /// Render a home-relative socket path as `$HOME/...` — for a double-quoted shell
 /// assignment, where `~` would NOT expand but `$HOME` does.
 func displaySocket(_ socketPath: String) -> String {

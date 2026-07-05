@@ -42,6 +42,11 @@ And **`sd doctor`** — a read-only health check of your whole setup (Secure Enc
 default key, the login agent, the live socket, and your shell wiring) that tells you
 exactly what to fix.
 
+And **`sd setup-git-signing`** — configures the current repo to sign git tags/commits with
+your sod key over SSH (Touch ID per signature). It prints a plan and asks before changing
+anything, never sets `commit.gpgsign`, and won't overwrite an existing GPG setup without
+`--force`.
+
 ## Why sod
 - **Minimal.** CLI-only, idiomatic, minimal surface interoping Secure Enclave to OpenSSH utilities.
   Barebones, no-fluff. 
@@ -192,6 +197,15 @@ smartcard messages:
 ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the SE ignores it
 ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ```
+
+**Git commit/tag signing.** `sd setup-git-signing` (run inside a repo) points git at your sod
+key for SSH signing — it sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_sod.pub`, and
+`gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Sign deliberately with
+`git tag -s` / `git commit -S` (each signature is a Touch ID); commits are never auto-signed
+unless you opt in with `--sign-tags` (tags) — `commit.gpgsign` is left untouched. Local
+verification (`git tag -v`, `git log --show-signature`) reads `allowed_signers`; GitHub's green
+**Verified** badge is separate — register the *same* key as a **Signing key** on GitHub
+(`gh ssh-key add ~/.ssh/id_sod.pub --type signing`), then confirm with `sd doctor --github`.
 
 ## How it works
 

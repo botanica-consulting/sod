@@ -32,6 +32,15 @@ public struct Doctor: ParsableCommand {
             """
     )
 
+    @Flag(name: .long, help: "Also check that GitHub has your key registered as a signing key (network).")
+    var github = false
+
+    @Option(
+        name: .long,
+        help: ArgumentHelp(
+            "GitHub username for --github (else inferred from gh / the origin remote).", valueName: "user"))
+    var githubUser: String?
+
     public init() {}
 
     public func run() throws {
@@ -208,6 +217,27 @@ public struct Doctor: ParsableCommand {
             )
         }
 
+        // 10. Git commit/tag signing (optional — warns, never fails; SSH-only users unaffected).
+        r.header("Git commit/tag signing (optional)")
+        if GitRunner.isInstalled() {
+            r.pass("git installed", GitRunner.binary.path)
+        } else {
+            r.warn("git installed", "no git at \(GitRunner.binary.path)", hint: "xcode-select --install")
+        }
+        if let gh = firstOnPath("gh") {
+            r.pass("gh installed", gh)
+        } else {
+            r.warn("gh installed", "not found — optional; only `sd doctor --github` needs it", hint: "brew install gh")
+        }
+        if GitRunner.isInstalled() {
+            if GitRunner.insideWorkTree() {
+                checkSigningConfig(&r, pubPath: pubPath)
+            } else {
+                r.pass("git SSH signing", "run inside a repo to check (configured per-repo)")
+            }
+            if github { checkGitHubSigningKey(&r, pubPath: pubPath, user: githubUser) }
+        }
+
         r.summary()
         if r.failCount > 0 { throw ExitCode.failure }
     }
@@ -324,6 +354,131 @@ private func firstOnPath(_ name: String) -> String? {
         if FileManager.default.isExecutableFile(atPath: p) { return p }
     }
     return nil
+}
+
+/// Report the coherence of this repo's git SSH-signing config (read-only, repo-local).
+/// `pass` when nothing is configured (it's optional) or everything lines up; `warn` on a gap.
+private func checkSigningConfig(_ r: inout Report, pubPath: String) {
+    let fm = FileManager.default
+    let fmt = GitRunner.configGet("gpg.format")
+    let key = GitRunner.configGet("user.signingkey")
+    let signers = GitRunner.configGet("gpg.ssh.allowedSignersFile")
+    let email = GitRunner.configGet("user.email")
+
+    if fmt == nil && key == nil && signers == nil {
+        r.pass("git SSH signing", "not configured for this repo (optional) — set up:  sd setup-git-signing")
+    } else {
+        var issues: [String] = []
+        if fmt != "ssh" { issues.append("gpg.format is \(fmt ?? "unset") (want ssh)") }
+        if let k = key {
+            if !fm.fileExists(atPath: expandTilde(k)) { issues.append("user.signingkey points at a missing file") }
+        } else {
+            issues.append("user.signingkey unset")
+        }
+        if let s = signers {
+            let contents = (try? String(contentsOfFile: expandTilde(s), encoding: .utf8)) ?? ""
+            let pub = (try? String(contentsOfFile: pubPath, encoding: .utf8)) ?? ""
+            if let line = allowedSignersLine(email: email ?? "", pubLine: pub),
+                !allowedSignersContains(contents: contents, line: line)
+            {
+                issues.append("allowed_signers doesn't list id_sod")
+            }
+        } else {
+            issues.append("gpg.ssh.allowedSignersFile unset")
+        }
+        if email == nil { issues.append("user.email unset") }
+        if issues.isEmpty {
+            r.pass("git SSH signing", "configured (gpg.format=ssh, signingkey + allowed_signers)")
+        } else {
+            r.warn("git SSH signing", issues.joined(separator: "; "), hint: "fix:  sd setup-git-signing")
+        }
+    }
+
+    if ["true", "yes", "on", "1"].contains((GitRunner.configGet("commit.gpgsign") ?? "").lowercased()) {
+        r.warn(
+            "commit.gpgsign", "on — every commit will prompt for Touch ID",
+            hint: "unset:  git config --unset commit.gpgsign")
+    }
+}
+
+/// Thread-safe-by-protocol result box for the async GitHub query. Written only inside the
+/// URLSession completion (before signaling the semaphore) and read only after the wait — the
+/// semaphore supplies the happens-before, so `@unchecked Sendable` is sound.
+private final class GitHubKeysResult: @unchecked Sendable {
+    var keys: [String] = []
+    var error: String?
+}
+
+/// Probe the PUBLIC `GET /users/{user}/ssh_signing_keys` endpoint (no auth/token/scope) and
+/// compare each registered key's blob to id_sod's. `pass` on a match; `warn` otherwise.
+private func checkGitHubSigningKey(_ r: inout Report, pubPath: String, user: String?) {
+    guard let pub = try? String(contentsOfFile: pubPath, encoding: .utf8),
+        let (_, ourBlob) = parsePubKeyTypeBlob(pub)
+    else {
+        r.warn("GitHub signing key", "can't read \(pubPath)")
+        return
+    }
+    guard let username = user ?? inferGitHubUser() else {
+        r.warn("GitHub signing key", "couldn't determine your GitHub username", hint: "pass --github-user <you>")
+        return
+    }
+    guard let url = URL(string: "https://api.github.com/users/\(username)/ssh_signing_keys") else {
+        r.warn("GitHub signing key", "invalid username: \(username)")
+        return
+    }
+    var request = URLRequest(url: url)
+    request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    request.timeoutInterval = 10
+
+    let box = GitHubKeysResult()
+    let sem = DispatchSemaphore(value: 0)
+    URLSession.shared.dataTask(with: request) { data, resp, err in
+        defer { sem.signal() }
+        if let err { box.error = err.localizedDescription; return }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        guard code == 200, let data else { box.error = "HTTP \(code)"; return }
+        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            box.keys = arr.compactMap { $0["key"] as? String }
+        }
+    }.resume()
+    guard sem.wait(timeout: .now() + 15) == .success else {
+        r.warn("GitHub signing key", "timed out querying GitHub")
+        return
+    }
+    if let e = box.error {
+        r.warn("GitHub signing key", "could not query GitHub for \(username): \(e)")
+        return
+    }
+    if box.keys.contains(where: { parsePubKeyTypeBlob($0)?.blob == ourBlob }) {
+        r.pass("GitHub signing key", "\(username) has id_sod registered as a signing key")
+    } else {
+        r.warn(
+            "GitHub signing key", "\(username) has \(box.keys.count) signing key(s), none matching id_sod",
+            hint: "add it:  gh ssh-key add ~/.ssh/id_sod.pub --type signing   (or https://github.com/settings/ssh/new)")
+    }
+}
+
+/// Best-effort GitHub username: `gh api user` if gh is present/authed, else the owner from
+/// the `origin` remote URL.
+private func inferGitHubUser() -> String? {
+    if let gh = firstOnPath("gh") {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: gh)
+        p.arguments = ["api", "user", "--jq", ".login"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        if (try? p.run()) != nil {
+            p.waitUntilExit()
+            if p.terminationStatus == 0 {
+                let s = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !s.isEmpty { return s }
+            }
+        }
+    }
+    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    return gitHubOwnerFromRemote(remote)
 }
 
 /// Ask the agent for its loaded identities (request 11 → answer 12). Returns the key

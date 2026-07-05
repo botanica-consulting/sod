@@ -23,6 +23,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the default key, the login agent (installed + loaded), the live socket and the key
   loaded in it, and whether `SSH_AUTH_SOCK` is set in the current shell and exported
   from its startup file — with actionable hints and a non-zero exit when unhealthy.
+  Also checks that `git`/`gh` are installed and, inside a repo, that its SSH-signing
+  config is coherent; opt-in `--github` confirms the key is registered as a GitHub
+  *signing* key (public API, no token).
+- `sd setup-git-signing`: configure the current repo to sign git tags/commits with your
+  Secure-Enclave key over SSH — sets `gpg.format=ssh`, `user.signingkey`, and
+  `gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Prints a plan and
+  asks first, is idempotent, refuses to overwrite an existing (e.g. GPG) config without
+  `--force`, and never sets `commit.gpgsign` (`--sign-tags` opts into `tag.gpgsign`).
 - Packaging: universal (arm64+x86_64) binary, notarizable `.pkg` (signing opt-in),
   Homebrew tap formula, tag-driven GitHub Release workflow, and a man page.
 - CI (GitHub Actions): lint, build matrix, mock unit + end-to-end tests, coverage.
