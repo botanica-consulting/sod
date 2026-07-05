@@ -125,10 +125,12 @@ It prints exactly what it will change, asks before touching anything, and is ide
 `user.signingkey=~/.ssh/id_sod.pub` — pointing at the **public** key is deliberate: it tells
 `ssh-keygen` to sign via the agent rather than a private key on disk, which is exactly what we
 want since the private half lives in the Secure Enclave — and `gpg.ssh.allowedSignersFile`,
-and it appends your key to `~/.ssh/allowed_signers` so local verification works. It uses this
-repo's `user.email` as the signer (and asks if that's unset), so make sure it's one of your
-verified GitHub emails. It **never** sets `commit.gpgsign`, so ordinary commits don't prompt;
-add `--sign-tags` if you want every annotated tag signed automatically.
+and it appends your key to `~/.ssh/allowed_signers` so local verification works. For GitHub's
+**Verified** badge the tag needs a verified GitHub email, so if you have no `user.email`
+configured it asks for your GitHub username (defaulting to your `origin` owner) and sets one to
+`<user>@users.noreply.github.com` — a verified no-reply address, no token or API call. An email
+you've already configured is left untouched. It **never** sets `commit.gpgsign`, so ordinary
+commits don't prompt; add `--sign-tags` if you want every annotated tag signed automatically.
 
 [resource: terminal capture — `sd setup-git-signing` showing its plan and the confirm prompt]
 
