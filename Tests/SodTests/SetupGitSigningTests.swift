@@ -49,6 +49,11 @@ func runSetupGitSigningSuite(_ h: Harness) {
     h.ok(!isPlausibleEmail("a b@c.d"), "email: whitespace")
     h.ok(!isPlausibleEmail("a@b"), "email: domain without a dot")
 
+    // --- emailFromIdent (extract the email git will stamp) ---
+    h.eq(emailFromIdent("Alon Livne <a@b.com> 1700000000 +0000"), "a@b.com", "ident: extracts email")
+    h.ok(emailFromIdent("no angle brackets here") == nil, "ident: no <> → nil")
+    h.ok(emailFromIdent("Name <> 1 +0") == nil, "ident: empty email → nil")
+
     // --- gitHubOwnerFromRemote ---
     h.eq(gitHubOwnerFromRemote("git@github.com:botanica-consulting/sod.git"), "botanica-consulting", "remote: scp form")
     h.eq(
@@ -59,17 +64,17 @@ func runSetupGitSigningSuite(_ h: Harness) {
     // --- computeGitSigningPlan ---
     let pubPath = "/Users/me/.ssh/id_sod.pub"
     let signersPath = "/Users/me/.ssh/allowed_signers"
-    func desired(signTags: Bool = false, writeEmail: Bool = true, email: String = "me@x.com") -> GitSigningDesired {
+    func desired(signTags: Bool = false, email: String = "me@x.com") -> GitSigningDesired {
         GitSigningDesired(
             pubPath: pubPath, allowedSignersPath: signersPath, email: email,
             allowedSignersLine: "\(email) ecdsa-sha2-nistp256 QUJDRA==",
-            signTags: signTags, writeUserEmailIfUnset: writeEmail)
+            signTags: signTags)
     }
     func setsKey(_ plan: GitSigningPlan, _ key: String) -> Bool {
         plan.changes.contains { if case let .setConfig(k, _) = $0 { return k == key } else { return false } }
     }
 
-    // fresh machine → all changes, no conflicts
+    // fresh machine → all changes, no conflicts, and it NEVER touches the git identity
     let fresh = computeGitSigningPlan(current: GitSigningState(), desired: desired(), force: false)
     h.ok(!fresh.isNoop, "plan(fresh): not a no-op")
     h.ok(!fresh.hasConflicts, "plan(fresh): no conflicts")
@@ -80,17 +85,15 @@ func runSetupGitSigningSuite(_ h: Harness) {
         fresh.changes.contains(.setConfig(key: "gpg.ssh.allowedSignersFile", value: signersPath)),
         "plan(fresh): sets allowedSignersFile")
     h.ok(
-        fresh.changes.contains(.setConfig(key: "user.email", value: "me@x.com")), "plan(fresh): sets user.email (unset)"
-    )
-    h.ok(
         fresh.changes.contains(.appendAllowedSigners(path: signersPath, line: line)),
         "plan(fresh): appends the signers line")
+    h.ok(!setsKey(fresh, "user.email"), "plan(fresh): never sets user.email")
+    h.ok(!setsKey(fresh, "user.name"), "plan(fresh): never sets user.name")
     h.ok(!setsKey(fresh, "tag.gpgsign"), "plan(fresh, no --sign-tags): no tag.gpgsign")
 
     // fully configured → no-op
     let full = GitSigningState(
-        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath, userEmail: "me@x.com",
-        allowedSignersHasLine: true)
+        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath, allowedSignersHasLine: true)
     h.ok(computeGitSigningPlan(current: full, desired: desired(), force: false).isNoop, "plan(fully configured): no-op")
 
     // gpg.format conflict
@@ -115,20 +118,13 @@ func runSetupGitSigningSuite(_ h: Harness) {
             .contains(.appendAllowedSigners(path: signersPath, line: line)),
         "plan(signers has line): no append")
 
-    // user.email already set to something else → never overwritten
-    let otherEmail = GitSigningState(userEmail: "other@y.com")
-    h.ok(
-        !setsKey(
-            computeGitSigningPlan(current: otherEmail, desired: desired(writeEmail: false), force: false), "user.email"),
-        "plan(email already set): never changes user.email")
-
     // --sign-tags on → sets tag.gpgsign
     let tags = computeGitSigningPlan(current: GitSigningState(), desired: desired(signTags: true), force: false)
     h.ok(tags.changes.contains(.setConfig(key: "tag.gpgsign", value: "true")), "plan(--sign-tags): sets tag.gpgsign")
 
     // commit.gpgsign on → never set by us
     let commitOn = GitSigningState(
-        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath, userEmail: "me@x.com",
+        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath,
         commitSignOn: true, allowedSignersHasLine: true)
     h.ok(
         !setsKey(computeGitSigningPlan(current: commitOn, desired: desired(), force: false), "commit.gpgsign"),

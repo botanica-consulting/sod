@@ -204,8 +204,9 @@ key for SSH signing — it sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_sod
 `git tag -s` / `git commit -S` (each signature is a Touch ID); commits are never auto-signed
 unless you opt in with `--sign-tags` (tags) — `commit.gpgsign` is left untouched. Local
 verification (`git tag -v`, `git log --show-signature`) reads `allowed_signers`; GitHub's green
-**Verified** badge is separate — register the *same* key as a **Signing key** on GitHub
-(`gh ssh-key add ~/.ssh/id_sod.pub --type signing`), then confirm with `sd doctor --github`.
+**Verified** badge is separate — it needs your git `user.email` to be a *verified GitHub email*
+(that's the tagger line GitHub checks) **and** the *same* key registered as a **Signing key** on
+GitHub (`gh ssh-key add ~/.ssh/id_sod.pub --type signing`). Confirm with `sd doctor --github`.
 
 ## How it works
 

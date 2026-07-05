@@ -363,7 +363,6 @@ private func checkSigningConfig(_ r: inout Report, pubPath: String) {
     let fmt = GitRunner.configGet("gpg.format")
     let key = GitRunner.configGet("user.signingkey")
     let signers = GitRunner.configGet("gpg.ssh.allowedSignersFile")
-    let email = GitRunner.configGet("user.email")
 
     if fmt == nil && key == nil && signers == nil {
         r.pass("git SSH signing", "not configured for this repo (optional) — set up:  sd setup-git-signing")
@@ -378,7 +377,9 @@ private func checkSigningConfig(_ r: inout Report, pubPath: String) {
         if let s = signers {
             let contents = (try? String(contentsOfFile: expandTilde(s), encoding: .utf8)) ?? ""
             let pub = (try? String(contentsOfFile: pubPath, encoding: .utf8)) ?? ""
-            if let line = allowedSignersLine(email: email ?? "", pubLine: pub),
+            // The match is blob-based (allowedSignersContains ignores the principal), so any
+            // non-empty placeholder email yields a well-formed line to check against.
+            if let line = allowedSignersLine(email: "signer", pubLine: pub),
                 !allowedSignersContains(contents: contents, line: line)
             {
                 issues.append("allowed_signers doesn't list id_sod")
@@ -386,7 +387,6 @@ private func checkSigningConfig(_ r: inout Report, pubPath: String) {
         } else {
             issues.append("gpg.ssh.allowedSignersFile unset")
         }
-        if email == nil { issues.append("user.email unset") }
         if issues.isEmpty {
             r.pass("git SSH signing", "configured (gpg.format=ssh, signingkey + allowed_signers)")
         } else {

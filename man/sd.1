@@ -198,14 +198,24 @@ existing signing configuration without
 It never sets
 .Cm commit.gpgsign ,
 so ordinary commits are not signed and never prompt.
+It also never sets
+.Cm user.name
+or
+.Cm user.email ,
+and never prompts for an email \(en it derives the signer from git's own
+committer identity.
+For GitHub's Verified badge, that identity's email must be a verified
+GitHub email (the tagger line is what GitHub checks).
 .Bl -tag -width "-sign-tags"
 .It Fl -sign-tags
 Also set
 .Cm tag.gpgsign=true
 so annotated tags are signed automatically.
 .It Fl -email Ar email
-Signer email for the allowed_signers entry (default: this repo's
-.Cm user.email ) .
+Override the
+.Pa allowed_signers
+principal.
+The default is git's own committer email, and it is never prompted for.
 .It Fl -key Ar keyfile
 Public key to sign with (default
 .Pa ~/.ssh/id_sod.pub ) .
@@ -261,6 +271,10 @@ The Secure Enclave requires Apple Silicon or a T2 chip.
 .Pp
 .Cm sd setup-git-signing
 never sets
-.Cm commit.gpgsign
+.Cm commit.gpgsign ,
+never touches
+.Cm user.name
+or
+.Cm user.email ,
 and never overwrites an existing signing configuration without
 .Fl -force .
