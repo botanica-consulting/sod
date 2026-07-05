@@ -206,10 +206,12 @@ unless you opt in with `--sign-tags` (tags) — `commit.gpgsign` is left untouch
 verification (`git tag -v`, `git log --show-signature`) reads `allowed_signers`. For GitHub's
 green **Verified** badge the tag's `user.email` must be a *verified GitHub email* (that's the
 tagger line GitHub checks) — so if you have none configured, `setup-git-signing` asks for your
-GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.github.com` (a
-verified no-reply address, no API call; an existing `user.email` is left untouched). You also
-need the *same* key registered as a **Signing key** on GitHub
-(`gh ssh-key add ~/.ssh/id_sod.pub --type signing`). Confirm with `sd doctor --github`.
+GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.github.com`, i.e.
+`--github-user alice` → `user.email=alice@users.noreply.github.com` (a verified no-reply address;
+an existing `user.email` is left untouched). Under `-y` it can't prompt, so pass `--github-user`
+or `--email` (don't know your username? `gh api user --jq .login`). You also need the *same* key
+registered as a **Signing key** on GitHub (`gh ssh-key add ~/.ssh/id_sod.pub --type signing`).
+Confirm with `sd doctor --github`.
 
 ## How it works
 

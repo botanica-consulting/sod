@@ -260,10 +260,10 @@ public struct SetupGitSigning: ParsableCommand {
 
             For GitHub's green "Verified" badge the tag's email must be a verified GitHub email.
             If you already have a user.email configured (locally or globally) it is left
-            untouched. If you have none, it asks for your GitHub username (defaulting to your
-            origin remote's owner) and sets a repo-local user.email of
-            <user>@users.noreply.github.com — a verified no-reply address, no token or API call
-            needed. It never sets user.name.
+            untouched. If you have none, it asks for your GitHub username and sets a repo-local
+            user.email of <user>@users.noreply.github.com — so --github-user alice maps to
+            user.email=alice@users.noreply.github.com, a verified no-reply address. Under -y it
+            can't prompt, so pass --github-user or --email. It never sets user.name.
 
             It never sets commit.gpgsign, so ordinary commits are not signed and never prompt;
             sign deliberately with `git commit -S` / `git tag -s`, or opt into annotated tags
@@ -284,7 +284,7 @@ public struct SetupGitSigning: ParsableCommand {
     @Option(
         name: .long,
         help: ArgumentHelp(
-            "GitHub username, to derive <user>@users.noreply.github.com (default: origin owner).",
+            "GitHub username; sets user.email to <user>@users.noreply.github.com when unset.",
             valueName: "user"))
     var githubUser: String?
 
@@ -354,8 +354,8 @@ public struct SetupGitSigning: ParsableCommand {
             userEmailToSet = derived
         } else {
             throw fail(
-                "no user.email configured and no GitHub username to derive one — "
-                    + "pass --github-user <you> or --email <you@example.com>")
+                "no user.email configured and no GitHub username to derive one — pass --github-user <you> "
+                    + "(find yours with: gh api user --jq .login) or --email <you@example.com>")
         }
 
         // 5. Build the desired config.
@@ -410,31 +410,21 @@ private func gitConfigBool(_ key: String) -> Bool {
     ["true", "yes", "on", "1"].contains((GitRunner.configGet(key) ?? "").lowercased())
 }
 
-/// The `origin` remote's GitHub owner (nil if there's no github.com origin) — the best local
-/// guess at your GitHub username, used to pre-fill the prompt and as the -y default.
-private func originGitHubOwner() -> String? {
-    let remote = GitRunner.run(["remote", "get-url", "origin"]).stdout
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    return gitHubOwnerFromRemote(remote)
-}
-
-/// Resolve the GitHub username used to derive <user>@users.noreply.github.com: an explicit
-/// --github-user, else (interactive) a prompt pre-filled with the origin owner, else (-y or a
-/// non-TTY) the origin owner as the accepted default. nil when there's nothing to go on.
+/// Resolve the GitHub username used to derive <user>@users.noreply.github.com. An explicit
+/// --github-user wins; otherwise we ASK (interactive only). There is no default and we never run
+/// `gh` to guess it, so under -y or a non-TTY this returns nil and run() errors with guidance to
+/// pass --github-user or --email.
 private func resolveGitHubUser(flag: String?, yesMode: Bool) -> String? {
     if let flag { return flag }
-    let originOwner = originGitHubOwner()
-    if yesMode || isatty(0) == 0 { return originOwner }
-    return promptGitHubUser(default: originOwner)
+    if yesMode || isatty(0) == 0 { return nil }
+    return promptGitHubUser()
 }
 
-/// Prompt for a GitHub username, offering `def` (the origin owner) as the default. Returns the
-/// default on an empty line; nil only when there's no default and nothing was typed.
-private func promptGitHubUser(default def: String?) -> String? {
-    let suffix = def.map { " [\($0)]" } ?? ""
-    FileHandle.standardOutput.write(Data("GitHub username\(suffix): ".utf8))
+/// Prompt once for a GitHub username. Returns nil on an empty line.
+private func promptGitHubUser() -> String? {
+    FileHandle.standardOutput.write(Data("Your GitHub username: ".utf8))
     let raw = (readLine() ?? "").trimmingCharacters(in: .whitespaces)
-    return raw.isEmpty ? def : raw
+    return raw.isEmpty ? nil : raw
 }
 
 private func renderPlan(_ plan: GitSigningPlan) {

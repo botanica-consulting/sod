@@ -31,9 +31,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Prints a plan and
   asks first, is idempotent, refuses to overwrite an existing (e.g. GPG) config without
   `--force`, and never sets `commit.gpgsign` (`--sign-tags` opts into `tag.gpgsign`). For
-  GitHub's Verified badge, when you have no `user.email` it derives one from your GitHub
-  username (`--github-user`, default: the origin owner) as `<user>@users.noreply.github.com`
-  and sets it repo-local; an existing `user.email` is left untouched.
+  GitHub's Verified badge, when you have no `user.email` it asks for your GitHub username and
+  sets a repo-local `user.email` of `<user>@users.noreply.github.com` (i.e. `--github-user
+  alice` → `alice@users.noreply.github.com`); under `-y`, pass `--github-user` or `--email`.
+  An existing `user.email` is left untouched.
 - Packaging: universal (arm64+x86_64) binary, notarizable `.pkg` (signing opt-in),
   Homebrew tap formula, tag-driven GitHub Release workflow, and a man page.
 - CI (GitHub Actions): lint, build matrix, mock unit + end-to-end tests, coverage.
