@@ -160,9 +160,7 @@ On GitHub, the tag (and any release built from it) shows the **Verified** badge.
 
 > **About "one tap."** The *signature* is one deliberate tap. Pushing the tag uses sod's
 > normal Touch-ID-gated SSH auth, like any `git push`, so in practice there's a second,
-> separate auth tap. (A short, opt-in presence window — letting the sign and the push
-> share one prompt via Touch ID's reuse allowance — is *possible* but not implemented
-> today; for now every signature and every auth prompts on its own.) The point isn't a
+> separate auth tap. The point isn't a
 > literal single touch; it's that the release's *authorship* is hardware-bound and
 > unforgeable.
 
@@ -248,9 +246,8 @@ verifier's `allowed_signers` (and in GitHub's record). Rotate the *signing* role
 - **`gh attestation` ≠ sod.** It's keyless build provenance (Sigstore/OIDC), a complement
   to — not a replacement for — a human-presence signature on the source.
 - **Per-commit signing stays a sidebar.** This flow is about the release boundary. If your
-  org *requires* signed commits on protected branches, sod can do it — but today every
-  signature prompts on its own, so per-commit signing means a tap per commit. (A short
-  presence window to amortize that is possible, but not implemented at this point.)
+  org *requires* signed commits on protected branches, sod can do it — but every signature
+  prompts on its own, so per-commit signing means a tap per commit.
 - **macOS + Secure Enclave only.** The key needs Apple Silicon or a T2 chip and Touch ID.
 
 ## Wrap
