@@ -28,8 +28,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `sd setup-git-signing`: configure the current repo to sign git tags/commits with your
   Secure-Enclave key over SSH — sets `gpg.format=ssh`, `user.signingkey`, and
   `gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Prints a plan and
-  asks first, is idempotent, refuses to overwrite an existing (e.g. GPG) config without
-  `--force`, and never sets `commit.gpgsign` (`--sign-tags` opts into `tag.gpgsign`). For
+  asks first, is idempotent, and refuses to overwrite an existing (e.g. GPG) config without
+  `--force`. By default it turns on both `commit.gpgsign` and `tag.gpgsign` (every commit and
+  annotated tag auto-signed, one Touch ID each); opt out with `--no-auto-sign-commits` /
+  `--no-auto-sign-tags`, which also turn a bit back off if the repo already has it on. For
   GitHub's Verified badge, when you have no `user.email` it asks for your GitHub username and
   sets a repo-local `user.email` of `<user>@users.noreply.github.com` (i.e. `--github-user
   alice` → `alice@users.noreply.github.com`); under `-y`, pass `--github-user` or `--email`.

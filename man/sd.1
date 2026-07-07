@@ -31,10 +31,12 @@
 .Cm doctor
 .Nm
 .Cm setup-git-signing
-.Op Fl -sign-tags
+.Op Fl -no-auto-sign-commits
+.Op Fl -no-auto-sign-tags
 .Op Fl -email Ar email
 .Op Fl -github-user Ar user
 .Op Fl -key Ar keyfile
+.Op Fl -allowed-signers Ar file
 .Op Fl y
 .Op Fl -force
 .Sh DESCRIPTION
@@ -182,9 +184,17 @@ It configures the current repository only (no global config), prints a plan, and
 asks before changing anything; it is idempotent and refuses to overwrite an
 existing signing configuration without
 .Fl -force .
-It never sets
-.Cm commit.gpgsign ,
-so ordinary commits are not signed and never prompt.
+By default it turns on both
+.Cm commit.gpgsign
+and
+.Cm tag.gpgsign ,
+so every commit and every annotated tag is signed automatically \(en each one a
+Touch ID.
+Opt out of either with
+.Fl -no-auto-sign-commits
+or
+.Fl -no-auto-sign-tags ;
+opting out of a bit this repo already has on turns it back off.
 It never sets
 .Cm user.name .
 For GitHub's Verified badge the tag's email must be a verified GitHub email
@@ -208,10 +218,16 @@ or
 .Fl -email .
 .Pq If you do not know your GitHub username: Ic gh api user --jq .login .
 .Bl -tag -width "-github-user user"
-.It Fl -sign-tags
-Also set
-.Cm tag.gpgsign=true
-so annotated tags are signed automatically.
+.It Fl -no-auto-sign-commits
+Do not set
+.Cm commit.gpgsign
+(commits are auto-signed by default);
+if this repo already has it on, turn it off.
+.It Fl -no-auto-sign-tags
+Do not set
+.Cm tag.gpgsign
+(annotated tags are auto-signed by default);
+if this repo already has it on, turn it off.
 .It Fl -email Ar email
 Signer email: the
 .Pa allowed_signers
@@ -231,6 +247,11 @@ configured; required in that case under
 .It Fl -key Ar keyfile
 Public key to sign with (default
 .Pa ~/.ssh/id_sod.pub ) .
+.It Fl -allowed-signers Ar file
+The allowed_signers file to record your key in and point
+.Cm gpg.ssh.allowedSignersFile
+at (default
+.Pa ~/.ssh/allowed_signers ) .
 .It Fl y
 Assume yes: apply without prompting.
 .It Fl -force
@@ -282,8 +303,6 @@ macOS only.
 The Secure Enclave requires Apple Silicon or a T2 chip.
 .Pp
 .Cm sd setup-git-signing
-never sets
-.Cm commit.gpgsign ,
 never touches
 .Cm user.name ,
 only sets
@@ -291,3 +310,7 @@ only sets
 when none is configured anywhere (it never overwrites an existing one), and
 never overwrites an existing signing configuration without
 .Fl -force .
+By default it auto-signs both commits and annotated tags; opt out with
+.Fl -no-auto-sign-commits
+or
+.Fl -no-auto-sign-tags .

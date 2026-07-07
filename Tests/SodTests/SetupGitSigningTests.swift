@@ -67,12 +67,14 @@ func runSetupGitSigningSuite(_ h: Harness) {
     // --- computeGitSigningPlan ---
     let pubPath = "/Users/me/.ssh/id_sod.pub"
     let signersPath = "/Users/me/.ssh/allowed_signers"
-    func desired(signTags: Bool = false, email: String = "me@x.com", userEmailToSet: String? = nil) -> GitSigningDesired
-    {
+    func desired(
+        signCommits: Bool = true, signTags: Bool = true, email: String = "me@x.com",
+        userEmailToSet: String? = nil
+    ) -> GitSigningDesired {
         GitSigningDesired(
             pubPath: pubPath, allowedSignersPath: signersPath, email: email,
             allowedSignersLine: "\(email) ecdsa-sha2-nistp256 QUJDRA==",
-            userEmailToSet: userEmailToSet, signTags: signTags)
+            userEmailToSet: userEmailToSet, signCommits: signCommits, signTags: signTags)
     }
     func setsKey(_ plan: GitSigningPlan, _ key: String) -> Bool {
         plan.changes.contains { if case let .setConfig(k, _) = $0 { return k == key } else { return false } }
@@ -93,11 +95,16 @@ func runSetupGitSigningSuite(_ h: Harness) {
         "plan(fresh): appends the signers line")
     h.ok(!setsKey(fresh, "user.email"), "plan(fresh): never sets user.email")
     h.ok(!setsKey(fresh, "user.name"), "plan(fresh): never sets user.name")
-    h.ok(!setsKey(fresh, "tag.gpgsign"), "plan(fresh, no --sign-tags): no tag.gpgsign")
+    // base config signs BOTH commits and tags
+    h.ok(
+        fresh.changes.contains(.setConfig(key: "commit.gpgsign", value: "true")),
+        "plan(fresh): sets commit.gpgsign=true")
+    h.ok(fresh.changes.contains(.setConfig(key: "tag.gpgsign", value: "true")), "plan(fresh): sets tag.gpgsign=true")
 
-    // fully configured → no-op
+    // fully configured (both signing bits already on) → no-op
     let full = GitSigningState(
-        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath, allowedSignersHasLine: true)
+        gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath,
+        tagSign: true, commitSignOn: true, allowedSignersHasLine: true)
     h.ok(computeGitSigningPlan(current: full, desired: desired(), force: false).isNoop, "plan(fully configured): no-op")
 
     // gpg.format conflict
@@ -134,15 +141,24 @@ func runSetupGitSigningSuite(_ h: Harness) {
     h.ok(!setsKey(keepsEmail, "user.email"), "plan(user.email already set): never overwrites it")
     h.ok(keepsEmail.items.contains(.satisfied("user.email already have@x.com (left as-is)")), "plan: notes it left it")
 
-    // --sign-tags on → sets tag.gpgsign
-    let tags = computeGitSigningPlan(current: GitSigningState(), desired: desired(signTags: true), force: false)
-    h.ok(tags.changes.contains(.setConfig(key: "tag.gpgsign", value: "true")), "plan(--sign-tags): sets tag.gpgsign")
+    // opting out on a fresh repo → just skip that bit (nothing on to turn off)
+    let noCommits = computeGitSigningPlan(
+        current: GitSigningState(), desired: desired(signCommits: false), force: false)
+    h.ok(!setsKey(noCommits, "commit.gpgsign"), "plan(--no-auto-sign-commits, fresh): no commit.gpgsign change")
+    h.ok(setsKey(noCommits, "tag.gpgsign"), "plan(--no-auto-sign-commits, fresh): still signs tags")
+    let noTags = computeGitSigningPlan(current: GitSigningState(), desired: desired(signTags: false), force: false)
+    h.ok(!setsKey(noTags, "tag.gpgsign"), "plan(--no-auto-sign-tags, fresh): no tag.gpgsign change")
+    h.ok(setsKey(noTags, "commit.gpgsign"), "plan(--no-auto-sign-tags, fresh): still signs commits")
 
-    // commit.gpgsign on → never set by us
+    // opting out of a bit the repo already has ON → unset it (flags idempotent both ways)
     let commitOn = GitSigningState(
         gpgFormat: "ssh", signingKey: pubPath, allowedSignersFile: signersPath,
-        commitSignOn: true, allowedSignersHasLine: true)
+        tagSign: true, commitSignOn: true, allowedSignersHasLine: true)
+    let optOut = computeGitSigningPlan(current: commitOn, desired: desired(signCommits: false), force: false)
     h.ok(
-        !setsKey(computeGitSigningPlan(current: commitOn, desired: desired(), force: false), "commit.gpgsign"),
-        "plan: never sets commit.gpgsign")
+        optOut.changes.contains(.unsetConfig(key: "commit.gpgsign")),
+        "plan(--no-auto-sign-commits, already on): unsets it")
+    h.ok(
+        !optOut.changes.contains(.unsetConfig(key: "tag.gpgsign")),
+        "plan(--no-auto-sign-commits): leaves tag.gpgsign on")
 }

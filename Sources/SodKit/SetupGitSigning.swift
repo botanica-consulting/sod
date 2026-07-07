@@ -85,8 +85,8 @@ public struct GitSigningState: Equatable {
     public var signingKey: String?
     public var allowedSignersFile: String?
     public var userEmail: String?  // MERGED (local→global→system); nil means no identity anywhere
-    public var tagSign: Bool
-    public var commitSignOn: Bool  // reported only — never set by us
+    public var tagSign: Bool  // repo-local tag.gpgsign
+    public var commitSignOn: Bool  // repo-local commit.gpgsign
     public var allowedSignersHasLine: Bool
     public init(
         gpgFormat: String? = nil, signingKey: String? = nil, allowedSignersFile: String? = nil,
@@ -114,22 +114,25 @@ public struct GitSigningDesired: Equatable {
     public let email: String
     public let allowedSignersLine: String
     public let userEmailToSet: String?
+    public let signCommits: Bool
     public let signTags: Bool
     public init(
         pubPath: String, allowedSignersPath: String, email: String, allowedSignersLine: String,
-        userEmailToSet: String? = nil, signTags: Bool
+        userEmailToSet: String? = nil, signCommits: Bool, signTags: Bool
     ) {
         self.pubPath = pubPath
         self.allowedSignersPath = allowedSignersPath
         self.email = email
         self.allowedSignersLine = allowedSignersLine
         self.userEmailToSet = userEmailToSet
+        self.signCommits = signCommits
         self.signTags = signTags
     }
 }
 
 public enum GitSigningChange: Equatable {
     case setConfig(key: String, value: String)
+    case unsetConfig(key: String)
     case appendAllowedSigners(path: String, line: String)
 }
 
@@ -213,23 +216,26 @@ public func computeGitSigningPlan(
                     + " pass --github-user <you> or --email to set one"))
     }
 
-    // tag.gpgsign — only when explicitly requested.
-    if desired.signTags {
-        if current.tagSign {
-            items.append(.satisfied("tag.gpgsign already true"))
-        } else {
+    // commit.gpgsign / tag.gpgsign — unlike gpg.format/signingkey (a foreign signer's config we
+    // protect behind --force), these are on/off policy bits we own outright, so they never
+    // conflict. The base config turns both on; --no-auto-sign-commits / --no-auto-sign-tags opt
+    // out. Opting out of a bit this repo already has on turns it back off (unset), so the flags
+    // are idempotent in both directions.
+    func boolConfig(_ key: String, currentOn: Bool, desiredOn: Bool) {
+        switch (desiredOn, currentOn) {
+        case (true, true):
+            items.append(.satisfied("\(key) already true"))
+        case (true, false):
+            items.append(.change(.setConfig(key: key, value: "true"), describe: "git config --local \(key) true"))
+        case (false, true):
             items.append(
-                .change(.setConfig(key: "tag.gpgsign", value: "true"), describe: "git config --local tag.gpgsign true"))
+                .change(.unsetConfig(key: key), describe: "git config --local --unset \(key)   (opted out)"))
+        case (false, false):
+            break  // already off / unset — nothing to do, nothing to report
         }
     }
-
-    // commit.gpgsign — never a change; only flag it if already on (every commit would prompt).
-    if current.commitSignOn {
-        items.append(
-            .note(
-                "commit.gpgsign is on — every commit will prompt for Touch ID (unset: git config --unset commit.gpgsign)"
-            ))
-    }
+    boolConfig("commit.gpgsign", currentOn: current.commitSignOn, desiredOn: desired.signCommits)
+    boolConfig("tag.gpgsign", currentOn: current.tagSign, desiredOn: desired.signTags)
 
     return GitSigningPlan(items)
 }
@@ -239,7 +245,7 @@ public func computeGitSigningPlan(
 public struct SetupGitSigning: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "setup-git-signing",
-        abstract: "Configure this repo to sign git tags/commits with your Secure-Enclave key.",
+        abstract: "Configure this repo to sign git commits and tags with your Secure-Enclave key.",
         discussion: """
             Points git's SSH signing at your sod public key (~/.ssh/id_sod.pub), served by the
             agent so Touch ID gates each signature. It configures the CURRENT repository only
@@ -256,14 +262,23 @@ public struct SetupGitSigning: ParsableCommand {
             user.email=alice@users.noreply.github.com, a verified no-reply address. Under -y it
             can't prompt, so pass --github-user or --email. It never sets user.name.
 
-            It never sets commit.gpgsign, so ordinary commits are not signed and never prompt;
-            sign deliberately with `git commit -S` / `git tag -s`, or opt into annotated tags
-            with --sign-tags.
+            By default it turns on both commit.gpgsign and tag.gpgsign, so every commit and every
+            annotated tag is signed automatically — each one is a Touch ID tap. Opt out of either
+            with --no-auto-sign-commits or --no-auto-sign-tags (then sign deliberately with
+            `git commit -S` / `git tag -s`). Opting out of a bit this repo already has on turns
+            it back off.
             """
     )
 
-    @Flag(name: .long, help: "Also set tag.gpgsign=true (sign annotated tags).")
-    var signTags = false
+    @Flag(
+        name: .customLong("auto-sign-commits"), inversion: .prefixedNo,
+        help: "Sign every commit (commit.gpgsign; a Touch ID each). On by default.")
+    var autoSignCommits = true
+
+    @Flag(
+        name: .customLong("auto-sign-tags"), inversion: .prefixedNo,
+        help: "Sign every annotated tag (tag.gpgsign; a Touch ID each). On by default.")
+    var autoSignTags = true
 
     @Option(
         name: .long,
@@ -281,6 +296,12 @@ public struct SetupGitSigning: ParsableCommand {
 
     @Option(name: .long, help: ArgumentHelp("Public key file (default ~/.ssh/id_sod.pub).", valueName: "keyfile"))
     var key: String?
+
+    @Option(
+        name: .customLong("allowed-signers"),
+        help: ArgumentHelp(
+            "allowed_signers file to record your key in (default ~/.ssh/allowed_signers).", valueName: "file"))
+    var allowedSigners: String?
 
     @Flag(name: [.customShort("y"), .long], help: "Assume yes: apply without prompting.")
     var yes = false
@@ -350,13 +371,17 @@ public struct SetupGitSigning: ParsableCommand {
         }
 
         // 5. Build the desired config.
-        let allowedSignersPath = absolutePath(expandTilde("~/.ssh/allowed_signers"))
+        let allowedSignersPath = absolutePath(expandTilde(allowedSigners ?? "~/.ssh/allowed_signers"))
+        guard !allowedSignersPath.hasPrefix("-") else {
+            throw fail("refusing allowed_signers path that starts with '-': \(allowedSignersPath)")
+        }
         guard let signersLine = allowedSignersLine(email: effectiveEmail, pubLine: pubContents) else {
             throw fail("could not build an allowed_signers line from \(pubPath)")
         }
         let desired = GitSigningDesired(
             pubPath: pubPath, allowedSignersPath: allowedSignersPath, email: effectiveEmail,
-            allowedSignersLine: signersLine, userEmailToSet: userEmailToSet, signTags: signTags)
+            allowedSignersLine: signersLine, userEmailToSet: userEmailToSet,
+            signCommits: autoSignCommits, signTags: autoSignTags)
 
         // 6. Read current state (repo-local; user.email is read MERGED) and compute the plan.
         let signersContents = (try? String(contentsOfFile: allowedSignersPath, encoding: .utf8)) ?? ""
@@ -451,6 +476,12 @@ private func applyChanges(_ changes: [GitSigningChange], stderr: FileHandle) thr
                 throw ExitCode.failure
             }
             print("  \(paint("✓", "32")) set \(key) = \(value)")
+        case .unsetConfig(let key):
+            guard GitRunner.configUnset(key) else {
+                stderr.write(Data("sd setup-git-signing: failed to unset \(key)\n".utf8))
+                throw ExitCode.failure
+            }
+            print("  \(paint("✓", "32")) unset \(key)")
         case .appendAllowedSigners(let path, let line):
             try appendAllowedSigners(path: path, line: line)
             print("  \(paint("✓", "32")) added your key to \(path)")
@@ -485,20 +516,16 @@ private func appendAllowedSigners(path: String, line: String) throws {
 
 private func printFooter(desired: GitSigningDesired) {
     print("")
-    print("Done — this repo now signs with your Secure-Enclave key over SSH.")
-    print("Commits are NOT auto-signed (by design). Sign deliberately:")
-    print("    git tag -s <tag> -m <msg>     # ← Touch ID")
-    print("    git commit -S                 # a single signed commit")
-    if desired.signTags { print("Annotated tags will be signed automatically (tag.gpgsign=true).") }
-    print("The sod agent must be running for Touch ID to work (sd install / sd doctor).")
-    print("")
-    print("Signing as \(desired.email).")
-    if desired.userEmailToSet != nil {
-        print("Set as this repo's user.email — a verified GitHub no-reply, so tags show \"Verified\".")
-    } else {
-        print("For GitHub's \"Verified\" badge that must be a verified GitHub email (the tagger line")
-        print("GitHub checks) — re-run with --email <you>@users.noreply.github.com if it isn't.")
+    switch (desired.signCommits, desired.signTags) {
+    case (true, true):
+        print("Done — this repo now auto-signs commits and annotated tags (Touch ID each).")
+    case (true, false):
+        print("Done — this repo now auto-signs commits (Touch ID each); sign tags with:  git tag -s")
+    case (false, true):
+        print("Done — this repo now auto-signs annotated tags (Touch ID each); sign commits with:  git commit -S")
+    case (false, false):
+        print("Done — signing configured; sign on demand with  git commit -S  /  git tag -s  (Touch ID each).")
     }
-    print("The key must also be registered as a GitHub Signing key:")
-    print("    gh ssh-key add ~/.ssh/id_sod.pub --type signing   (or https://github.com/settings/ssh/new)")
+    print("Signing as \(desired.email). For GitHub's \"Verified\" badge, register the key once:")
+    print("    gh ssh-key add ~/.ssh/id_sod.pub --type signing")
 }

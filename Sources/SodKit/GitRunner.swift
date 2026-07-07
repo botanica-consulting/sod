@@ -88,6 +88,15 @@ enum GitRunner {
         run(["config", "--local", key, value], in: repo).ok
     }
 
+    /// `git config --local --unset <key>` — removes the repo-local value. Git exits 5 when the
+    /// key wasn't set locally; we treat that as success (the desired end-state — key absent — is
+    /// already met), so only a real failure returns false.
+    @discardableResult
+    static func configUnset(_ key: String, in repo: URL? = nil) -> Bool {
+        let r = run(["config", "--local", "--unset", key], in: repo)
+        return r.ok || r.status == 5
+    }
+
     /// True when the working directory is inside a git work tree.
     static func insideWorkTree(in repo: URL? = nil) -> Bool {
         run(["rev-parse", "--is-inside-work-tree"], in: repo).stdout

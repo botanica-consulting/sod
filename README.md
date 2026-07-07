@@ -42,10 +42,10 @@ And **`sd doctor`** — a read-only health check of your whole setup (Secure Enc
 default key, the login agent, the live socket, and your shell wiring) that tells you
 exactly what to fix.
 
-And **`sd setup-git-signing`** — configures the current repo to sign git tags/commits with
-your sod key over SSH (Touch ID per signature). It prints a plan and asks before changing
-anything, never sets `commit.gpgsign`, and won't overwrite an existing GPG setup without
-`--force`.
+And **`sd setup-git-signing`** — configures the current repo to sign git commits and tags with
+your sod key over SSH (Touch ID per signature). By default it auto-signs both (opt out with
+`--no-auto-sign-commits` / `--no-auto-sign-tags`). It prints a plan and asks before changing
+anything, and won't overwrite an existing GPG setup without `--force`.
 
 ## Why sod
 - **Minimal.** CLI-only, idiomatic, minimal surface interoping Secure Enclave to OpenSSH utilities.
@@ -200,10 +200,11 @@ ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 
 **Git commit/tag signing.** `sd setup-git-signing` (run inside a repo) points git at your sod
 key for SSH signing — it sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_sod.pub`, and
-`gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. Sign deliberately with
-`git tag -s` / `git commit -S` (each signature is a Touch ID); commits are never auto-signed
-unless you opt in with `--sign-tags` (tags) — `commit.gpgsign` is left untouched. Local
-verification (`git tag -v`, `git log --show-signature`) reads `allowed_signers`. For GitHub's
+`gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. By default it sets
+`commit.gpgsign` **and** `tag.gpgsign`, so every commit and annotated tag is signed automatically
+(each one a Touch ID) — opt out with `--no-auto-sign-commits` / `--no-auto-sign-tags` and sign
+deliberately with `git commit -S` / `git tag -s` instead. Local verification (`git tag -v`,
+`git log --show-signature`) reads `allowed_signers`. For GitHub's
 green **Verified** badge the tag's `user.email` must be a *verified GitHub email* (that's the
 tagger line GitHub checks) — so if you have none configured, `setup-git-signing` asks for your
 GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.github.com`, i.e.

@@ -410,9 +410,9 @@ private func checkSigningConfig(_ r: inout Report, pubPath: String) {
     }
 
     if ["true", "yes", "on", "1"].contains((GitRunner.configGet("commit.gpgsign") ?? "").lowercased()) {
-        r.warn(
-            "commit.gpgsign", "on — every commit will prompt for Touch ID",
-            hint: "unset:  git config --unset commit.gpgsign")
+        r.pass(
+            "commit.gpgsign",
+            "on — every commit is signed (Touch ID each); opt out: sd setup-git-signing --no-auto-sign-commits")
     }
 }
 
