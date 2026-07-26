@@ -1,100 +1,57 @@
 ---
-title: "One tap to ship: hardware-signed releases with sod + gh"
+title: "Touch ID for git signing: a setup and enforcement guide"
 description: >
-  Use a Secure-Enclave SSH key (sod) to sign your release tags with Touch ID, and let
-  GitHub Actions build and publish from the signed ref. Supply-chain-grade provenance,
-  no GPG, one fingerprint.
-date: 2026-06-28
+  Sign your git commits and release tags with a Secure Enclave key, so every signature costs
+  a fingerprint and none of them can be produced off your Mac. Then make it stick: require
+  signed commits with a GitHub ruleset, and gate releases on a signed tag in CI.
+date: 2026-07-26
 author: Botanica Software Labs
-tags: [secure-enclave, touch-id, ssh, release-engineering, supply-chain, github, gh]
+tags: [secure-enclave, touch-id, ssh, git, signing, release-engineering, supply-chain, github]
 draft: true
 ---
 
 <!--
   DRAFT. Text first. Resources to add later:
-  - terminal capture of `git tag -s` triggering the Touch ID sheet
-  - screenshot of the "Verified" badge on a sod release/tag on GitHub
-  - a small diagram: human signs the tag (presence) → CI builds the artifact (provenance)
+  - terminal capture of `git commit` triggering the Touch ID sheet
+  - screenshot of the "Verified" badge on a sod commit and on a release tag
+  - screenshot of the ruleset UI with "Require signed commits" checked
   Marked inline with [resource: …] placeholders.
 -->
 
-# One tap to ship: hardware-signed releases with sod + gh
+# Touch ID for git signing: a setup and enforcement guide
 
-> **TL;DR** — Register your [sod](https://github.com/botanica-consulting/sod) key as a
-> GitHub *signing* key, point git at it, and sign your release **tags**. The signature
-> comes from the Secure Enclave and requires Touch ID, so the moment that actually
-> matters — *"this is the commit we're shipping"* — is gated by your fingerprint, not by
-> a token sitting on disk. Push the signed tag and CI does the rest.
+> **TL;DR** — Register your [sod](https://github.com/botanica-consulting/sod) key as a GitHub
+> *signing* key, run `sd setup-git-signing` in your repo, and every commit and annotated tag
+> gets signed by the Secure Enclave behind a Touch ID prompt. Then choose how hard you want it
+> enforced: a GitHub ruleset can require signed **commits** on a branch, but GitHub *cannot*
+> enforce signed **tags** — that one needs a CI check. Both recipes are below.
 
-## "Who shipped this?" is the question that matters
+This is a how-to. If you want the argument for why hardware-backed signing is different in
+kind from a key in `~/.ssh`, [skip to the reasoning](#why-a-secure-enclave-key-changes-the-claim);
+otherwise start with [Setup](#part-1-setup).
 
-Most of the supply-chain conversation is about artifacts: checksums, SBOMs, build
-provenance. All useful. But there's an earlier, more human link in the chain that's easy
-to skip over: **who decided that *this exact commit* is the release, and can you prove
-it was them?**
+---
 
-That decision is expressed as a **tag** (`v1.2.3`). If the tag is unsigned, anyone who
-can push — a stolen token, a misconfigured CI bot, an unattended-but-unlocked laptop —
-can mint a "release" that looks exactly like yours. A signed tag closes that gap: it
-binds the release point to a key. And if that key lives in hardware and demands a
-fingerprint to use, the binding is to *a person who was physically present*, not merely
-to *a secret someone copied*.
+## Part 1: Setup
 
-That's the whole pitch of this post: **sign the intent, not every keystroke.** You don't
-need to tap your way through a rebase. You need one deliberate, unforgeable signature at
-the release boundary — and sod makes that signature a single Touch ID tap.
+You need sod installed and running. If it isn't, `sd install` and
+[the Quickstart](https://github.com/botanica-consulting/sod#quickstart) take about a minute.
+Check it's live before going further — you should be able to run `ssh -T git@github.com` and
+see your username come back.
 
-> **Why not sign every commit?** You can, but it's the wrong place to spend presence.
-> Commits are high-frequency and often non-interactive (rebases, amends, scripts, CI), so
-> per-commit hardware prompts are friction without much payoff — and the only way to make
-> them bearable is a cache that dilutes the "presence on every signature" guarantee. Tags
-> and releases are rare, deliberate, and high-value. That's where a fingerprint earns its
-> keep.
+Setup is two halves: a one-time step on **GitHub** (tell it your key is allowed to *sign*),
+then one command in your **repo**. sod deliberately never touches your GitHub account, so the
+GitHub half is yours to do.
 
-## What sod brings to the table
+### 1. Register the sod key as a GitHub *signing* key
 
-[sod](https://github.com/botanica-consulting/sod) serves an `ecdsa-sha2-nistp256` SSH key
-that is **generated inside the Secure Enclave and never leaves it**. The file on disk
-(`~/.ssh/id_sod`) is an *opaque handle* — a device-bound blob with no usable secret in
-it. Every time the key signs anything, the Secure Enclave requires Touch ID (with
-passcode fallback).
+GitHub keeps *authentication* keys and *signing* keys in separate lists, and the same key can
+sit in both. Your sod key is already registered for auth — that's how you push. Now add it a
+second time, as a signing key. Without this registration your signatures are valid but GitHub
+won't show the green **Verified** badge.
 
-Two properties make it a great release-signing key specifically:
-
-1. **One key, two jobs.** It's already your *authentication* key — it's how you `git
-   push` and `ssh` to GitHub. Register the *same* public key as a *signing* key and it now
-   also proves authorship. No second keyring to manage, no GPG.
-2. **You physically cannot sign off-device.** Because the on-disk handle isn't a usable
-   private key, a signature can only be produced by the Secure Enclave, through the agent,
-   with your finger. There's no key material to exfiltrate and no "sign it on the CI box"
-   shortcut. Presence isn't a policy you opt into — it's a property of the key.
-
-It's worth being precise about how the signing actually happens, because it's the crux:
-git's SSH signing calls `ssh-keygen -Y sign`, which signs through the **ssh-agent** when
-you point it at a public key whose private half isn't on disk. sod *is* that agent. So
-`git tag -s` → `ssh-keygen -Y sign` → sod agent → Secure Enclave → Touch ID. (We verified
-this end-to-end with a P-256 key whose on-disk private file was deliberately replaced with
-garbage: signing still succeeds via the agent, and verification passes.)
-
-## Setup (once)
-
-Assumes sod is installed and running — if not, `sd install` and
-[the Quickstart](https://github.com/botanica-consulting/sod#quickstart) get you there in a
-minute. You should already be able to `ssh -T git@github.com` and see your username.
-
-Setup has two halves: a one-time step on **GitHub** (tell it your key may *sign*), and a
-one-command step in your **repo** (point git's SSH signing at the sod key). sod deliberately
-never touches your GitHub account, so the GitHub half is yours to do — by CLI or in the web UI.
-
-### 1. Register the sod key as a GitHub *signing* key (GitHub-side, manual)
-
-GitHub keeps *authentication* keys and *signing* keys in separate lists — the same key can be
-in both. Your sod key is already your auth key; add it a second time, this time as a signing
-key. That registration is what turns your signatures into the green **Verified** badge
-(provided the tagger email is one of your verified GitHub emails).
-
-**With the `gh` CLI.** Registering a *signing* key needs a scope your token probably doesn't
-have yet, so grant it once, then add the key:
+**With the `gh` CLI.** Adding a signing key needs a scope your token probably lacks, so grant
+it once:
 
 ```sh
 gh auth refresh -h github.com -s admin:ssh_signing_key
@@ -103,93 +60,290 @@ gh ssh-key add ~/.ssh/id_sod.pub --type signing --title "sod (Secure Enclave)"
 
 **Or in the web UI** — no extra scope, nothing to install:
 
-1. Copy your public key: `pbcopy < ~/.ssh/id_sod.pub`.
-2. Go to **Settings → SSH and GPG keys** and click **New SSH key**.
-   [screenshot: the "SSH and GPG keys" settings page, "New SSH key" button]
-3. Set **Key type** to **Signing Key** (*not* Authentication Key), paste the key, give it a
-   title, and click **Add SSH key**.
-   [screenshot: the New-SSH-key form with Key type = Signing Key and the key pasted]
-4. It now shows under **SSH keys**, labelled as a signing key.
-   [screenshot: the key listed with its "Signing Key" label]
+1. Copy the public key: `pbcopy < ~/.ssh/id_sod.pub`
+2. Go to **Settings → SSH and GPG keys**, click **New SSH key**.
+3. Set **Key type** to **Signing Key** — *not* Authentication Key — paste, title it, **Add SSH key**.
+   [screenshot: the New-SSH-key form with Key type = Signing Key]
+4. It appears under **SSH keys** with a "Signing Key" label.
 
-### 2. Point this repo's git at the sod key (one command)
+### 2. Point the repo's git at the key
 
-Everything on the git side is a single command, run **inside the repo** you cut releases from:
+One command, run **inside** the repo:
 
 ```sh
 sd setup-git-signing
 ```
 
-It prints exactly what it will change, asks before touching anything, and is idempotent
-(re-run it any time). Under the hood it sets, **for this repo**, `gpg.format=ssh`,
-`user.signingkey=~/.ssh/id_sod.pub` — pointing at the **public** key is deliberate: it tells
-`ssh-keygen` to sign via the agent rather than a private key on disk, which is exactly what we
-want since the private half lives in the Secure Enclave — and `gpg.ssh.allowedSignersFile`,
-and it appends your key to `~/.ssh/allowed_signers` so local verification works. For GitHub's
-**Verified** badge the tag needs a verified GitHub email, so if you have no `user.email`
-configured it asks for your GitHub username and sets one to `<user>@users.noreply.github.com` —
-i.e. `--github-user alice` maps to `user.email=alice@users.noreply.github.com`, a verified
-no-reply address. An email you've already configured is left untouched. (Not sure of your
-username? `gh api user --jq .login`. With `-y`, pass `--github-user` or `--email`.) It **never**
-sets `commit.gpgsign`, so ordinary commits don't prompt; add `--sign-tags` if you want every
-annotated tag signed automatically.
+It prints exactly what it will change, asks before touching anything, and is idempotent — re-run
+it whenever. Everything it sets is **repo-local**; your global git config is left alone.
 
 [resource: terminal capture — `sd setup-git-signing` showing its plan and the confirm prompt]
 
-Notice what you *didn't* do: no `gpg --gen-key`, no keyserver, no expiry to babysit, no
-passphrase, and no global git config to reason about. The key already existed; you just gave
-it a second role in this repo.
+What it configures, and why each one:
 
-## Cutting a release: the tap that matters
+| Setting | Value | Why |
+|---|---|---|
+| `gpg.format` | `ssh` | Sign with SSH keys instead of GPG. |
+| `user.signingkey` | `~/.ssh/id_sod.pub` | The **public** key, deliberately — see below. |
+| `gpg.ssh.allowedSignersFile` | `~/.ssh/allowed_signers` | So *you* can verify signatures locally. |
+| `commit.gpgsign` | `true` | Sign every commit. |
+| `tag.gpgsign` | `true` | Sign every annotated tag. |
+
+It also appends your key to `~/.ssh/allowed_signers`, so local verification works immediately.
+
+**Why point at the public key?** This is the load-bearing trick. Handing `user.signingkey` a
+*public* key tells `ssh-keygen` to sign through the **ssh-agent** rather than reading a private
+key off disk — and sod *is* that agent. So the chain is `git commit` → `ssh-keygen -Y sign` →
+sod agent → Secure Enclave → Touch ID. There is no private key file for git to find, because
+there is no private key file anywhere. (We tested this the blunt way: replaced the on-disk
+private file with garbage. Signing still succeeded through the agent, and verification passed.)
+
+**On the identity it needs.** For GitHub's **Verified** badge, the commit's email must be a
+verified GitHub email. If you already have a `user.email` configured, sod leaves it alone. If
+you have none, it asks for your GitHub username and sets a repo-local
+`user.email=<user>@users.noreply.github.com` — a no-reply address that's verified for your
+account by construction, so `--github-user alice` becomes `alice@users.noreply.github.com`.
+It never sets `user.name`. (Don't know your username? `gh api user --jq .login`. Under `-y` it
+can't prompt, so pass `--github-user` or `--email`.)
+
+**If you don't want a tap per commit**, opt out per kind:
 
 ```sh
-git tag -s v1.2.3 -m "v1.2.3"   # ← Touch ID: the Secure Enclave signs the tag
-git push origin v1.2.3          # push the signed tag
-git tag -v v1.2.3               # verify locally — a public-key check, no prompt
+sd setup-git-signing --no-auto-sign-commits   # tags only; sign commits ad hoc with git commit -S
+sd setup-git-signing --no-auto-sign-tags      # commits only
 ```
 
-[resource: terminal capture — the macOS Touch ID sheet appearing on `git tag -s`]
+These are idempotent in both directions — opting out of a bit the repo already has on turns it
+back off. Which of these you want depends on the enforcement tier you pick in Part 2, so decide
+that first if you're unsure.
 
-The first line is the moment that counts. The Secure Enclave produces the signature only
-after your fingerprint; nothing about that signature exists anywhere a thief could have
-copied it from.
+Notice what you didn't do: no `gpg --gen-key`, no keyserver, no expiry to babysit, no
+passphrase, no global config to reason about. The key already existed; you gave it a second job.
 
-On GitHub, the tag (and any release built from it) shows the **Verified** badge.
+### 3. Check it actually works
 
-[resource: screenshot — the "Verified" badge on a sod release tag]
+```sh
+git commit --allow-empty -m "signing smoke test"   # ← Touch ID
+git log --show-signature -1                        # "Good \"git\" signature for you@…"
+```
 
-> **About "one tap."** The *signature* is one deliberate tap. Pushing the tag uses sod's
-> normal Touch-ID-gated SSH auth, like any `git push`, so in practice there's a second,
-> separate auth tap. The point isn't a
-> literal single touch; it's that the release's *authorship* is hardware-bound and
-> unforgeable.
+[resource: terminal capture — the macOS Touch ID sheet appearing on `git commit`]
 
-### Let CI build from the signed ref
+Verification prompts for nothing: it's a public-key operation. Only *signing* costs a finger.
 
-This is where it gets satisfying. If your release workflow triggers on tags, your entire
-job as a human collapses to *signing the tag*. sod's own pipeline does exactly this — its
-[`release.yml`](https://github.com/botanica-consulting/sod/blob/main/.github/workflows/release.yml)
-runs on `push: tags: ["v*"]` and, from the signed commit, builds the notarized universal
-`.pkg` + tarball, writes `SHA256SUMS.txt`, and opens the Homebrew tap PR. You sign; the
-machines build, notarize, and publish — all anchored to a ref a human put their finger on.
+Push it and GitHub should show **Verified** on the commit. If it shows **Unverified**, the
+signature is fine but the email doesn't match a verified GitHub address, or the key isn't
+registered as a *signing* key — recheck step 1.
+
+---
+
+## Part 2: Enforcement — pick a tier
+
+Setup makes signing your default. It doesn't make it a *rule*: nothing stops you (or a
+collaborator, or a stolen token) from pushing unsigned work. That gap is what enforcement
+closes, and there are two very different places to close it.
+
+The important thing to know up front, because it's counterintuitive and shapes both recipes:
+
+> **GitHub can require signed commits. GitHub cannot require signed tags.**
+> The `required_signatures` ruleset rule only ever inspects commits reachable from a branch.
+> Applying it to a ruleset with `target: tag` is accepted by the API and does nothing at all to
+> tag objects — an unsigned tag pushes clean. This is a
+> [known and acknowledged limitation](https://github.com/orgs/community/discussions/154293)
+> with no native fix, which is why Tier B below is a CI job rather than a checkbox.
+
+| | Tier A — all commits | Tier B — releases only |
+|---|---|---|
+| **Protects** | every commit landing on a branch | the release boundary (tags) |
+| **Mechanism** | GitHub ruleset, `required_signatures` | CI job running `git verify-tag` |
+| **Enforced by** | GitHub, server-side | your workflow |
+| **Taps** | one per commit | one per release |
+| **Cost to contributors** | they must sign too | none |
+
+They're complementary, not alternatives. Tier B is the higher-value one — it's the boundary
+where "who decided to ship this?" gets answered — and it's the one GitHub won't do for you.
+
+### Tier A: require signed commits on a branch
+
+**In the UI:** **Settings → Rules → Rulesets → New ruleset**, target the branch (or
+`~DEFAULT_BRANCH`), and check **Require signed commits**.
+
+**Or via the API.** If you're adding the rule to a ruleset that already exists, there's a trap:
+`rules` is replaced **wholesale**, so sending just the new rule silently deletes every other rule
+in that ruleset. Read the current rules first, add to them, and send the array back:
+
+```sh
+gh api repos/OWNER/REPO/rulesets --jq '.[] | "\(.id)\t\(.name)"'   # find the id
+gh api repos/OWNER/REPO/rulesets/RULESET_ID > ruleset.json          # read what's there
+# edit ruleset.json: append {"type": "required_signatures"} to .rules
+gh api -X PUT repos/OWNER/REPO/rulesets/RULESET_ID --input ruleset.json
+```
+
+Send *only* the `rules` key in the payload and GitHub leaves `conditions` and `bypass_actors`
+untouched — which is what you want, since re-sending `bypass_actors` verbatim can trip over
+actors the GET renders with a null `actor_id`. Confirm what actually took effect afterwards:
+
+```sh
+gh api repos/OWNER/REPO/rules/branches/BRANCH --jq '.[].type'
+```
+
+Four things to know before you turn it on:
+
+- **Your existing history is grandfathered.** The rule only checks commits that aren't already
+  reachable from another branch. You do *not* have to rewrite or re-sign the past.
+- **GitHub's own commits still pass.** Web-UI edits and the squash/rebase/merge buttons produce
+  commits signed by *GitHub's* key. They stay verified, so your web workflow survives — but be
+  clear-eyed that those signatures attest GitHub made the commit, not that you were present.
+- **Bypass actors are exempt.** If the ruleset lists org admins or the admin role under
+  bypass, those people sail straight through and the rule is advisory for them. If you want it
+  to bind *you*, put the rule in a ruleset with an empty bypass list.
+- **It raises the bar for contributors.** On a public repo, every PR commit now needs a
+  verified signature or it can't land. Say so in `CONTRIBUTING.md` — and note that any method
+  GitHub verifies is fine, GPG included. Don't make signing sod-specific.
+
+### Tier B: gate releases on a signed tag
+
+Since GitHub won't check tag signatures, the workflow does. Two pieces.
+
+**First, a committed trust root** — the keys allowed to ship. `.github/allowed_signers`:
+
+```
+# Format: <principal> namespaces="git" <keytype> <key>
+# The principal must match the tagger's email exactly.
+you@users.noreply.github.com namespaces="git" ecdsa-sha2-nistp256 AAAAE2VjZHNh…
+```
+
+Keeping this in-repo is the point: changing who may cut a release is a reviewed PR against a
+protected branch, not a settings toggle someone can flip quietly. `namespaces="git"` scopes each
+key to git signatures so it can't be used to verify signatures from some other namespace.
+
+**Second, a job that runs before anything is built:**
+
+```yaml
+jobs:
+  verify-tag:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest      # a public-key check: no macOS, no secrets, no Touch ID
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag is signed by an approved maintainer key
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          # checkout can leave a lightweight ref pointing at the commit, which would make an
+          # annotated tag look unsigned. Refetch the tag object itself.
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag — release tags must be signed: git tag -s"
+            exit 1
+          fi
+
+          git -c gpg.format=ssh \
+              -c gpg.ssh.allowedSignersFile=.github/allowed_signers \
+              verify-tag "$TAG"
+
+  release:
+    needs: [verify-tag]
+    # verify-tag is skipped on a manual dispatch (no tag); a skipped dependency must not skip
+    # the release with it. Only a real failure blocks.
+    if: always() && needs.verify-tag.result != 'failure' && needs.verify-tag.result != 'cancelled'
+    runs-on: macos-15
+    steps:
+      # … build, notarize, checksum, publish …
+```
+
+Three details worth not getting wrong:
+
+- **Refetch the tag.** `actions/checkout` can leave a lightweight ref, which makes a perfectly
+  signed annotated tag look unsigned. Without the explicit `git fetch` of `refs/tags/$TAG`, this
+  gate fails confusingly or passes vacuously depending on the runner.
+- **Reject lightweight tags explicitly.** `git verify-tag` on a lightweight tag is a
+  less-obvious error than a message telling the maintainer to use `git tag -s`.
+- **Mind the skip semantics.** A `needs:` on a conditional job will skip the dependent job too
+  unless you guard with `always()` and check the result — which would silently disable your
+  release pipeline for manual runs.
+
+sod [enforces exactly this on itself](https://github.com/botanica-consulting/sod/blob/main/.github/workflows/release.yml).
+
+---
+
+## Cutting a release
+
+With both tiers in place:
+
+```sh
+git commit -m "…"              # ← Touch ID (commit.gpgsign)
+git tag -s v1.2.3 -m "v1.2.3"  # ← Touch ID: the tap that says "this is the release"
+git push origin main v1.2.3
+git tag -v v1.2.3              # verify locally — no prompt
+```
+
+The tag signature is the one that matters most. The Secure Enclave produces it only after your
+fingerprint, and nothing about it exists anywhere a thief could have copied it from. Push the
+tag and CI takes over: verify the signature, then build, notarize, checksum, publish — all
+anchored to a ref a human put a finger on.
 
 ```
    you ──(git tag -s)──▶ signed tag ──(git push)──▶ GitHub
                                                       │
                                               tag push triggers CI
                                                       ▼
-                                   build · notarize · checksum · publish
+                                 verify-tag ──▶ build · notarize · publish
+                                      │
+                                  unsigned? ──▶ refuse to build
 ```
 
-[resource: replace the ASCII sketch above with a proper diagram]
+[resource: replace the ASCII sketch with a proper diagram]
 
-## Optional: layer build provenance with `gh attestation`
+> **About "one tap."** How many prompts you actually see depends on your remote. With an **SSH**
+> remote, the push itself uses sod's Touch-ID-gated auth, so that's a separate tap on top of the
+> signing ones. With an **HTTPS** remote (a stored credential or a `gh` token) the push doesn't
+> involve sod at all — the signatures are still Enclave-backed, but the transport isn't. Worth
+> knowing which you have: `git remote -v`. Either way the claim isn't a literal single touch;
+> it's that *authorship* is hardware-bound and unforgeable.
 
-sod's signature answers *who decided to ship this source*. It does **not** attest *how the
-binary was built* — that's a different link in the chain, and GitHub has a keyless,
-Sigstore-backed mechanism for it. The two are complementary; use both for defense in depth.
+---
 
-In the build job:
+## Why a Secure Enclave key changes the claim
+
+Signed commits are not new, and plenty of people sign with a GPG or SSH key sitting in a file.
+The difference is what a signature *proves*.
+
+A key in `~/.ssh` or `~/.gnupg` proves that **something with access to that file** produced the
+signature. That's a real claim, but it's a claim about a secret — and secrets get copied by
+malware, backups, sync clients, and anyone who gets your laptop while it's unlocked. Once
+copied, signatures can be minted anywhere, forever, silently.
+
+sod serves an `ecdsa-sha2-nistp256` key **generated inside the Secure Enclave that never leaves
+it**. `~/.ssh/id_sod` is an *opaque, device-bound handle* — there is no usable secret in that
+file. Every signature is produced by the Enclave itself, and the Enclave requires Touch ID
+(with passcode fallback) each time.
+
+So the claim upgrades: not "something with the key signed this" but **"a person was physically
+present at this specific Mac"**. There's no key material to exfiltrate and no way to sign on a
+build box. Presence isn't a policy you opted into — it's a property of the key.
+
+That's also why the same key does both jobs. It's already your authentication key; registering it
+as a signing key means one key, no second keyring, no GPG.
+
+---
+
+## Verifying, as someone else
+
+- **You, locally:** `git log --show-signature` / `git tag -v v1.2.3`, checked against your
+  `allowed_signers`. No prompt.
+- **Anyone, on GitHub:** the **Verified** badge. Zero setup for them.
+- **Your team or CI:** a shared `allowed_signers` file plus `git verify-tag` in a checkout —
+  Tier B, which is what turns "we sign releases" from a convention into a gate.
+
+## Optional: add build provenance
+
+A sod signature answers *who decided to ship this source*. It says nothing about *how the binary
+was built*. GitHub has a keyless, Sigstore-backed mechanism for that, and the two compose:
 
 ```yaml
 permissions:
@@ -197,70 +351,56 @@ permissions:
   attestations: write
   contents: write
 steps:
-  # … build dist/sod-<version>.pkg …
   - uses: actions/attest-build-provenance@v1
     with:
       subject-path: "dist/sod-*.pkg"
 ```
 
-And a consumer can verify the artifact's provenance:
-
 ```sh
-gh attestation verify ./sod-1.2.3.pkg --repo botanica-consulting/sod
+gh attestation verify ./sod-1.2.3.pkg --repo OWNER/REPO
 ```
 
-So the finished story is: **sod signs the source/intent (human presence); Sigstore attests
-the build (machine provenance); Apple notarization vouches for the installer.** Three
-independent answers to three different "can I trust this?" questions.
-
-## Verifying a release
-
-- **You, locally:** `git tag -v v1.2.3` (or `git log --show-signature`) checks the signature
-  against your `allowed_signers`. No Touch ID — verification is a public-key operation.
-- **Anyone, on GitHub:** the **Verified** badge on the tag/release. Zero setup for them.
-- **Your team / CI, from the CLI:** distribute the maintainers' public keys in a shared
-  `allowed_signers` file and run `git verify-tag` in a checkout. This lets a build pipeline
-  *refuse to build* a tag that isn't signed by an approved key — turning "we sign releases"
-  from a convention into an enforced gate.
+The finished story: **sod signs the intent (human presence); Sigstore attests the build (machine
+provenance); notarization vouches for the installer.** Three answers to three different questions.
 
 ## Rotating the key
 
-Because the key is non-exportable, rotation is the recovery story (there's no backup to
-restore — by design). It's cheap:
+The key is non-exportable, so rotation *is* the recovery story — there's no backup to restore, by
+design. It's cheap:
 
 ```sh
-sd ssh-keygen -f ~/.ssh/id_sod                 # new Secure-Enclave key on this Mac
-gh ssh-key add ~/.ssh/id_sod.pub --type signing --title "sod (rotated 2026-06)"
-# update ~/.ssh/allowed_signers with the new line; remove the retired key from GitHub
+sd ssh-keygen -f ~/.ssh/id_sod
+gh ssh-key add ~/.ssh/id_sod.pub --type signing --title "sod (rotated 2026-07)"
+# update ~/.ssh/allowed_signers and .github/allowed_signers; retire the old key on GitHub
 ```
 
-Tags you signed with the old key keep verifying as long as the old public key stays in the
-verifier's `allowed_signers` (and in GitHub's record). Rotate the *signing* role and the
-*authentication* role together — it's the same key doing both.
+Signatures made with the old key keep verifying as long as the old public key stays in the
+verifier's `allowed_signers` and in GitHub's record. Rotate the signing and authentication roles
+together — it's one key doing both.
 
 ## The honest boundaries
 
-- **`gh`'s API uses its own OAuth token**, not your SSH key. sod gates git *transport* and
-  *signing*; it doesn't gate API calls like `gh release edit`. Don't read "hardware-gated"
-  as "every GitHub action requires your finger."
-- **`gh attestation` ≠ sod.** It's keyless build provenance (Sigstore/OIDC), a complement
-  to — not a replacement for — a human-presence signature on the source.
-- **Per-commit signing stays a sidebar.** This flow is about the release boundary. If your
-  org *requires* signed commits on protected branches, sod can do it — but every signature
-  prompts on its own, so per-commit signing means a tap per commit.
-- **macOS + Secure Enclave only.** The key needs Apple Silicon or a T2 chip and Touch ID.
+- **GitHub cannot enforce signed tags.** Bears repeating, since it's the single most common wrong
+  assumption here. `required_signatures` is commits-on-branches only. Tags need CI.
+- **Bypass actors quietly undo Tier A.** A ruleset that exempts admins doesn't constrain admins.
+  Check the bypass list before believing the rule.
+- **GitHub's signatures aren't your signatures.** Web edits and merge buttons produce
+  GitHub-signed commits. Verified, but not evidence you were present.
+- **`gh`'s API uses its own OAuth token**, not your SSH key. sod gates git transport and signing;
+  it doesn't gate `gh release edit`. "Hardware-gated" is not "every GitHub action needs a finger."
+- **A tap per commit is a real cost.** Signing every commit means a prompt on every commit,
+  including rebases and amends, and non-interactive tooling can't tap. If that's untenable, run
+  `--no-auto-sign-commits` and keep Tier B — the release gate is where the value concentrates.
+- **macOS + Secure Enclave only.** Needs Apple Silicon or a T2 chip, and Touch ID.
 
 ## Wrap
 
-Signing releases has a reputation for being fiddly — GPG keyrings, expiry, "why is my
-passphrase being asked for in CI." With sod, the key you already use to reach GitHub
-becomes the key that vouches for your releases, and the act of vouching is a single
-fingerprint on the tag. Everything downstream — build, notarize, checksum, publish — hangs
-off that one signed ref.
-
-Ship less, prove more. One tap.
+Signing has a reputation for being fiddly — keyrings, expiry, "why is it asking for my passphrase
+in CI." With sod, the key you already use to reach GitHub becomes the key that vouches for your
+work, the act of vouching is a fingerprint, and two mechanisms make it stick: a ruleset for
+commits, a CI gate for tags. Everything downstream hangs off a ref a human touched.
 
 ---
 
 *Want to try it? [Install sod](https://github.com/botanica-consulting/sod#install), then
-`sd install`. It's a single notarized binary, built on nothing but Apple frameworks.*
+`sd install`. A single notarized binary, built on nothing but Apple frameworks.*
