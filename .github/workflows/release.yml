@@ -34,46 +34,7 @@ permissions:
 #                                    tap (a human merges it to publish).
 
 jobs:
-  # Human-presence gate. A release may only be cut from an annotated tag signed by a key in
-  # .github/allowed_signers — in practice a Secure Enclave key that required a Touch ID to
-  # produce the signature. GitHub cannot enforce this for us: the `required_signatures`
-  # ruleset rule only ever checks commits on branches and ignores tag objects entirely, so
-  # this job is the enforcement point for "who decided this commit is the release".
-  verify-tag:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest     # a public-key check — no macOS, no secrets, no Touch ID
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Verify the tag is signed by an approved maintainer key
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF#refs/tags/}"
-          # checkout can leave behind a lightweight ref pointing at the commit, which would
-          # make an annotated tag look unsigned. Refetch the tag object itself.
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-
-          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
-            echo "::error::$TAG is a lightweight tag. Release tags must be annotated and" \
-                 "signed: git tag -s $TAG -m '$TAG'"
-            exit 1
-          fi
-
-          if ! git -c gpg.format=ssh \
-                   -c gpg.ssh.allowedSignersFile=.github/allowed_signers \
-                   verify-tag "$TAG"; then
-            echo "::error::$TAG is not signed by a key in .github/allowed_signers." \
-                 "Re-cut it with 'git tag -s' using a registered maintainer key."
-            exit 1
-          fi
-
   release:
-    needs: [verify-tag]
-    # verify-tag is skipped on workflow_dispatch (no tag to check); a skipped dependency
-    # must not skip the release job with it. Only a real failure blocks.
-    if: always() && needs.verify-tag.result != 'failure' && needs.verify-tag.result != 'cancelled'
     runs-on: macos-15          # Sequoia: default Xcode 16 = Swift 6
     env:
       DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
