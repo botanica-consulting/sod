@@ -40,3 +40,13 @@ by running on a Mac with Touch ID.
 ## Pull requests
 
 You are welcome to submit pull requests.
+
+`main` requires signed commits, so every commit in a PR needs a verified signature before it
+can land. Any signing method GitHub verifies works — GPG, a plain SSH key, or a hardware-backed
+one. If you're on a Mac with Touch ID, sod itself is the least-effort route: `sd setup-git-signing`
+configures this repo to sign with a Secure Enclave key. See
+[docs/blog/signed-releases.md](docs/blog/signed-releases.md) for the full walkthrough.
+
+Release tags carry a second requirement: they must be annotated and signed by a key listed in
+[`.github/allowed_signers`](.github/allowed_signers), which the `verify-tag` job enforces before
+anything is built or published.
