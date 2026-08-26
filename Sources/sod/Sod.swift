@@ -20,6 +20,9 @@ struct Sod: ParsableCommand {
         commandName: "sd",
         abstract: "Secure-Enclave-backed SSH — your key never leaves the Secure Enclave; Touch ID signs.",
         version: Build.version,
-        subcommands: [Keygen.self, Agent.self, Add.self, CopyId.self, Install.self, Uninstall.self, Doctor.self]
+        subcommands: [
+            Keygen.self, Agent.self, Add.self, CopyId.self, Install.self, Uninstall.self,
+            Doctor.self, SetupGitSigning.self,
+        ]
     )
 }

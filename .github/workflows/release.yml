@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write              # create the GitHub Release + upload assets
+  id-token: write              # the OIDC token Sigstore signs the attestation against
+  attestations: write          # store the attestation on the repo
 
 # Repository secrets for SIGNED + NOTARIZED builds. With NONE set, the workflow still
 # produces an UNSIGNED .pkg + tarball so it never blocks. Set them together:
@@ -111,6 +113,14 @@ jobs:
           # Archive name keeps the `sod-` product prefix (matches the .pkg); the binary inside is `sd`.
           tar -czf "sod-${GITHUB_REF_NAME}-universal.tar.gz" sd
           shasum -a 256 sod-*.tar.gz sod-*.pkg > SHA256SUMS.txt
+
+      # Provenance: GitHub signs a record of what was built, from which commit, in which
+      # workflow (verify with `gh attestation verify`). Runs on manual builds too — an
+      # attested test artifact is harmless, and the release path stays identical.
+      - name: Attest the release artifacts
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/SHA256SUMS.txt
 
       - name: Publish GitHub Release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/')

@@ -43,12 +43,18 @@ And **`sd doctor`** — a read-only health check of your whole setup (Secure Enc
 default key, the login agent, the live socket, and your shell wiring) that tells you
 exactly what to fix.
 
-## Why sod
+And **`sd setup-git-signing`** — configures the current repo to sign git commits and tags with
+your sod key over SSH (Touch ID per signature). By default it auto-signs both (opt out with
+`--no-auto-sign-commits` / `--no-auto-sign-tags`). It prints a plan and asks before changing
+anything, and won't overwrite an existing GPG setup without `--force`.
 
-- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
-  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
+## Why sod
+- **Minimal.** CLI-only, idiomatic, minimal surface interoping Secure Enclave to OpenSSH utilities.
+  Barebones, no-fluff. 
 - **Presence on every signature.** Touch ID with
   passcode fallback, durable across fingerprint re-enrollment.
+- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
+  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
 - **Zero conf.** Runs as an independent ssh agent, does not meddle with your other SSH key flows.
@@ -193,6 +199,24 @@ ssh-add -s ~/.ssh/id_sod       # press Enter at the PKCS#11 PIN prompt — the S
 ssh-add -e ~/.ssh/id_sod       # unload      (ssh-add -l / -L to list)
 ```
 
+**Git commit/tag signing.** `sd setup-git-signing` (run inside a repo) points git at your sod
+key for SSH signing — it sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_sod.pub`, and
+`gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. By default it sets
+`commit.gpgsign` **and** `tag.gpgsign`, so every commit and annotated tag is signed automatically
+(each one a Touch ID) — opt out with `--no-auto-sign-commits` / `--no-auto-sign-tags` and sign
+deliberately with `git commit -S` / `git tag -s` instead. Local verification (`git tag -v`,
+`git log --show-signature`) reads `allowed_signers`. For GitHub's
+green **Verified** badge the tag's `user.email` must be a *verified GitHub email* (that's the
+tagger line GitHub checks) — so if you have none configured, `setup-git-signing` asks for your
+GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.github.com`, i.e.
+`--github-user alice` → `user.email=alice@users.noreply.github.com` (a verified no-reply address;
+an existing `user.email` is left untouched). Under `-y` it can't prompt, so pass `--github-user`
+or `--email` (don't know your username? `gh api user --jq .login`). You also need the *same* key
+registered as a **Signing key** on GitHub (`gh ssh-key add ~/.ssh/id_sod.pub --type signing`).
+To confirm it's registered: `gh ssh-key list`, your [SSH keys settings](https://github.com/settings/keys),
+or the public API — `curl -s https://api.github.com/users/<you>/ssh_signing_keys`. The definitive
+check is the **Verified** badge on your first signed tag.
+
 ## How it works
 
 ```
@@ -231,7 +255,7 @@ SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/k  # full generate → agent → ssh
 
 The mock is compiled **only** when `SE_SSH_MOCK` is set, so it is physically absent
 from any release build (which prints a loud warning if you somehow build one). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the lint and coverage commands.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the build, test, and lint commands.
 
 ## Project layout
 
