@@ -94,23 +94,36 @@ public final class AgentState {
 public final class AgentConnection {
     public var forwarding = false
     public var boundHostKey: Data?
-    public init() {}
+    /// The process on the other end, captured at accept time (nil when unknown).
+    public var peer: PeerContext?
+    public init(peer: PeerContext? = nil) { self.peer = peer }
 }
 
-/// A terse Touch ID reason derived from the bytes being signed. macOS renders it as
-/// "sd is trying to <reason>.", so it's phrased lowercase and verb-first, e.g.
-/// "sign a git commit or tag with your sod key" / "log in over SSH with your sod key".
-func signReason(for data: Data) -> String {
+/// A terse Touch ID reason derived from the bytes being signed, made specific by the peer
+/// when we know it. macOS renders it as "sd is trying to <reason>.", so it's phrased lowercase
+/// and verb-first: "sign a git commit or tag in sod with your sod key" / "log in to github.com
+/// over SSH with your sod key" — or the generic forms when there is no usable context.
+/// The peer-derived parts are advisory (see `PeerContext`) and pass `isSafePromptName`.
+public func signReason(for data: Data, peer: PeerContext? = nil) -> String {
     let action: String
     switch SSHWire.classifySignedData(data) {
     case .sshsig(let ns) where isSafePromptNamespace(ns):
         switch ns {
-        case "git": action = "sign a git commit or tag"
+        case "git":
+            if let repo = peer?.cwd.flatMap(gitRepoName(cwd:)), isSafePromptName(repo) {
+                action = "sign a git commit or tag in \(repo)"
+            } else {
+                action = "sign a git commit or tag"
+            }
         case "file": action = "sign a file"
         default: action = "sign \(ns) data"
         }
     case .sshUserAuth:
-        action = "log in over SSH"
+        if let host = peer.flatMap({ sshDestination(argv: $0.argv) }), isSafePromptName(host) {
+            action = "log in to \(host) over SSH"
+        } else {
+            action = "log in over SSH"
+        }
     default:
         action = "sign"
     }
@@ -179,8 +192,11 @@ public func handleRequest(
                 SSHWire.ecdsaP256PublicKeyBlob(x963: x963) == keyBlob
             else { continue }
             do {
-                // Touch ID (real backend), with a reason that names what's being signed.
-                let raw = try state.backend.sign(handle: h.handle, data: data, reason: signReason(for: data))
+                // Touch ID (real backend), with a reason that names what's being signed — and for
+                // whom, when the peer is known. On a forwarded connection the peer is only the
+                // local relaying ssh, which says nothing about the remote requester, so no context.
+                let reason = signReason(for: data, peer: conn.forwarding ? nil : conn.peer)
+                let raw = try state.backend.sign(handle: h.handle, data: data, reason: reason)
                 return SSHWire.signResponse(signatureBlob: try SSHWire.ecdsaP256SignatureBlob(rawRS: raw))
             } catch {
                 elog("sign failed: \(error)")
@@ -221,7 +237,8 @@ public func handleRequest(
 }
 
 private func serve(_ fd: Int32, state: AgentState) {
-    let conn = AgentConnection()  // session-bind state lives for this one connection
+    // Per-connection state: who connected (for the prompt text) and, later, session-bind.
+    let conn = AgentConnection(peer: PeerContext.capture(fd: fd))
     while true {
         guard let lenData = readExactly(fd, 4) else { return }
         var r = ByteReader(lenData)

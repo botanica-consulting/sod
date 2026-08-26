@@ -12,6 +12,7 @@ runInstallSuite(harness)
 runDoctorSuite(harness)
 runCopyIdSuite(harness)
 runSetupGitSigningSuite(harness)
+runPeerContextSuite(harness)
 #if SE_SSH_MOCK
 runKeyStoreSuite(harness)
 runAgentSuite(harness)
