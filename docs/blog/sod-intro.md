@@ -12,9 +12,13 @@ draft: true
 
 # sod: SSH logins with Touch ID
 
-Like most consultancies, we spend our days SSHing into things — client environments, our own
-servers, GitHub. Each of those sessions is authenticated by a private key, and the standard
-arrangement keeps that key in a file under `~/.ssh`. A file can be read by anything running
+In our work, which often involves remote environments supplied by our clients, we put a
+strong emphasis on security by trying to avoid password sharing. Instead, we often use SSH
+keys. While enterprise solutions for managing SSH identities exist, we find them to be
+cumbersome — and we do not want to put our clients in the position of having to onboard a
+new IT tool for us.
+
+A key, though, is ordinarily a file under `~/.ssh`. A file can be read by anything running
 as the user, included in a backup, or copied once and used quietly forever. Passphrases
 help, right up until the key is unlocked into an agent that will sign for whoever asks.
 
@@ -76,8 +80,9 @@ ssh-keygen`, `sd ssh-agent`, `sd ssh-add`). It does not manage your other keys, 
 anything, or touch your GitHub account.
 
 The one real trade-off is inherent: the key is bound to one machine's enclave, so a new Mac
-means a new key. We treat that as a feature — enrolling a key per device is exactly the
-hygiene we'd recommend anyway — but it is worth knowing before committing.
+means a new key. The key being unexportable is a security feature and not a bug in this
+case — we consider the Secure Enclave's guarantee here to be paramount — but it is worth
+knowing before committing.
 
 SSH login was the itch; signing turned out to be the more interesting scratch. How we use
 the same key to sign every commit and release we ship is the subject of
