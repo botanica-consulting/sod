@@ -1,5 +1,4 @@
 import ArgumentParser
-import CryptoKit  // SHA256 for the fingerprint line only
 import Foundation
 import SEKeyStore
 import SSHWire
@@ -31,9 +30,7 @@ private func writeFile(_ path: String, _ data: Data, mode: Int) throws {
     }
 }
 
-private func fingerprint(_ blob: Data) -> String {
-    "SHA256:" + Data(SHA256.hash(data: blob)).base64EncodedString().replacingOccurrences(of: "=", with: "")
-}
+private func fingerprint(_ blob: Data) -> String { sshKeyFingerprint(blob) }
 
 public struct Keygen: ParsableCommand {
     public static let configuration = CommandConfiguration(

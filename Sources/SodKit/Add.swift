@@ -1,5 +1,4 @@
 import ArgumentParser
-import CryptoKit  // SHA256 for the `-l` fingerprint only
 import Foundation
 import SEKeyStore
 import SSHWire
@@ -37,9 +36,7 @@ private func transact(socket path: String, _ request: Data) -> (type: UInt8, pay
     return (type, Data(body.dropFirst()))
 }
 
-private func sshFingerprint(_ blob: Data) -> String {
-    "SHA256:" + Data(SHA256.hash(data: blob)).base64EncodedString().replacingOccurrences(of: "=", with: "")
-}
+private func sshFingerprint(_ blob: Data) -> String { sshKeyFingerprint(blob) }
 
 private func resolveSocket(_ explicit: String?) -> String {
     if let e = explicit { return expandTilde(e) }

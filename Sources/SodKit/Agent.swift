@@ -102,8 +102,10 @@ public final class AgentConnection {
 /// A terse Touch ID reason derived from the bytes being signed, made specific by the peer
 /// when we know it. macOS renders it as "sd is trying to <reason>.", so it's phrased lowercase
 /// and verb-first: "sign a git commit or tag in sod with your sod key" / "log in to github.com
-/// over SSH with your sod key" — or the generic forms when there is no usable context.
-/// The peer-derived parts are advisory (see `PeerContext`) and pass `isSafePromptName`.
+/// (140.82.121.4) over SSH with your sod key" — or the generic forms when there is no usable
+/// context. For logins the name comes from ssh's argv and the address from the TCP connection
+/// the requesting ssh actually holds; either may be missing. The peer-derived parts are advisory
+/// (see `PeerContext`) and pass `isSafePromptName`/`isSafePromptAddress`.
 public func signReason(for data: Data, peer: PeerContext? = nil) -> String {
     let action: String
     switch SSHWire.classifySignedData(data) {
@@ -119,10 +121,16 @@ public func signReason(for data: Data, peer: PeerContext? = nil) -> String {
         default: action = "sign \(ns) data"
         }
     case .sshUserAuth:
-        if let host = peer.flatMap({ sshDestination(argv: $0.argv) }), isSafePromptName(host) {
-            action = "log in to \(host) over SSH"
-        } else {
-            action = "log in over SSH"
+        var host = peer.flatMap { sshDestination(argv: $0.argv) }
+        if let h = host, !isSafePromptName(h) { host = nil }
+        var address = peer.flatMap { sshRemote(remotes: $0.remotes) }?.promptText
+        if let a = address, !isSafePromptAddress(a) { address = nil }
+        switch (host, address) {
+        case let (h?, a?) where h == a: action = "log in to \(h) over SSH"  // host given as a literal IP
+        case let (h?, a?): action = "log in to \(h) (\(a)) over SSH"
+        case let (h?, nil): action = "log in to \(h) over SSH"
+        case let (nil, a?): action = "log in to \(a) over SSH"
+        case (nil, nil): action = "log in over SSH"
         }
     default:
         action = "sign"
@@ -193,8 +201,9 @@ public func handleRequest(
             else { continue }
             do {
                 // Touch ID (real backend), with a reason that names what's being signed — and for
-                // whom, when the peer is known. On a forwarded connection the peer is only the
-                // local relaying ssh, which says nothing about the remote requester, so no context.
+                // whom / to where, when the peer is known. On a forwarded connection the peer is
+                // only the local relaying ssh, which says nothing about the remote requester, so
+                // no context.
                 let reason = signReason(for: data, peer: conn.forwarding ? nil : conn.peer)
                 let raw = try state.backend.sign(handle: h.handle, data: data, reason: reason)
                 return SSHWire.signResponse(signatureBlob: try SSHWire.ecdsaP256SignatureBlob(rawRS: raw))
