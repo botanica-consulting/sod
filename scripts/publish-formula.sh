@@ -15,13 +15,16 @@ cd "$(dirname "$0")/.."
 TAG="${SOD_TAG:-${GITHUB_REF_NAME:?publish-formula: neither SOD_TAG nor GITHUB_REF_NAME set}}"   # e.g. v0.1.0
 case "$TAG" in v[0-9]*) ;; *) echo "publish-formula: '$TAG' is not a release tag (expected vX.Y.Z)" >&2; exit 2 ;; esac
 VERSION="${TAG#v}"
-REVISION="$(git rev-parse HEAD)"                                   # the tagged commit
+# The tagged commit, and the template AS OF THAT TAG — so a republish from a newer main
+# (publish-formula.yml) still renders the formula that matches the release. On a tag build
+# both resolve to HEAD's own values.
+REVISION="$(git rev-parse "${TAG}^{commit}" 2>/dev/null || git rev-parse HEAD)"
+TEMPLATE="$(git show "${TAG}:homebrew/sod.rb" 2>/dev/null || cat homebrew/sod.rb)"
 
-# Render the template (homebrew/sod.rb). Homebrew infers the version (0.1.0) from the tag.
-FORMULA="$(sed \
+# Render the template. Homebrew infers the version (0.1.0) from the tag.
+FORMULA="$(printf '%s\n' "$TEMPLATE" | sed \
   -e "s|__TAG__|${TAG}|g" \
-  -e "s|__REVISION__|${REVISION}|g" \
-  homebrew/sod.rb)"
+  -e "s|__REVISION__|${REVISION}|g")"
 
 TAP_REPO="botanica-consulting/homebrew-tap"
 BRANCH="release/sod-${TAG}"
