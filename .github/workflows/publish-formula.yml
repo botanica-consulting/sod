@@ -24,9 +24,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      # Check out main (this workflow's ref) so the CURRENT script runs; it reads the release's
+      # commit and formula template from the tag itself, which needs the tags fetched.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}      # the script records `git rev-parse HEAD` as the formula's revision
+          fetch-depth: 0
 
       - name: Render formula and open the tap PR
         env:
