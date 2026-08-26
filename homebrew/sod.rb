@@ -25,6 +25,11 @@ class Sod < Formula
     system "swift", "build", "--configuration", "release", "--disable-sandbox", "--product", "sd"
     bin.install ".build/release/sd"
     man1.install "man/sd.1"
+    # Completions are emitted by the binary (swift-argument-parser), so they always
+    # match the CLI. base_name "sd" keeps the files named after the command, not "sod".
+    generate_completions_from_executable(bin/"sd", "--generate-completion-script",
+                                         base_name: "sd", shells: [:bash, :zsh, :fish],
+                                         shell_parameter_format: :arg)
   end
 
   def caveats

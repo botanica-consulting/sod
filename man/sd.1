@@ -1,4 +1,4 @@
-.Dd June 26, 2026
+.Dd July 5, 2026
 .Dt SD 1
 .Os
 .Sh NAME
@@ -23,12 +23,27 @@
 .Oo Fl d | Fl D | Fl l | Fl L Oc
 .Op Ar keyfile ...
 .Nm
+.Cm ssh-copy-id
+.Op Fl i Ar keyfile
+.Op Ar option ...
+.Ar [user@]host
+.Nm
 .Cm install
 .Op Fl a Ar socket
 .Nm
 .Cm uninstall
 .Nm
 .Cm doctor
+.Nm
+.Cm setup-git-signing
+.Op Fl -no-auto-sign-commits
+.Op Fl -no-auto-sign-tags
+.Op Fl -email Ar email
+.Op Fl -github-user Ar user
+.Op Fl -key Ar keyfile
+.Op Fl -allowed-signers Ar file
+.Op Fl y
+.Op Fl -force
 .Sh DESCRIPTION
 .Nm
 keeps an SSH authentication key in the Secure Enclave and serves it to stock
@@ -114,6 +129,22 @@ List loaded keys as fingerprints
 or full public keys
 .Pq Fl L .
 .El
+.Ss sd ssh-copy-id
+Authorize your key on a server by appending its public key to the remote
+.Pa authorized_keys .
+A thin wrapper over
+.Xr ssh-copy-id 1
+that defaults the identity
+.Pq Fl i
+to
+.Pa ~/.ssh/id_sod.pub
+and forwards all other arguments unchanged, so
+.Dl sd ssh-copy-id user@host
+installs the Secure-Enclave public key on
+.Ar host .
+Pass your own
+.Fl i
+to override the default.
 .Ss sd install
 Set up everything in one step: if the default key
 .Pa ~/.ssh/id_sod
@@ -160,7 +191,101 @@ exists, the login agent is installed and loaded, the agent socket is live and
 holds your key, and whether
 .Ev SSH_AUTH_SOCK
 is set in the current shell and exported from your shell startup file.
+It also checks whether
+.Xr git 1
+and
+.Xr gh 1
+are installed and, inside a repository, whether that repo's SSH-signing
+config is coherent.
 Exits non-zero if any check fails.
+.Ss sd setup-git-signing
+Configure the current repository to sign git tags and commits with your sod key
+over SSH.
+It sets
+.Cm gpg.format=ssh ,
+.Cm user.signingkey
+to your
+.Pa .pub ,
+and
+.Cm gpg.ssh.allowedSignersFile ,
+and appends your key to the allowed_signers file.
+It configures the current repository only (no global config), prints a plan, and
+asks before changing anything; it is idempotent and refuses to overwrite an
+existing signing configuration without
+.Fl -force .
+By default it turns on both
+.Cm commit.gpgsign
+and
+.Cm tag.gpgsign ,
+so every commit and every annotated tag is signed automatically \(en each one a
+Touch ID.
+Opt out of either with
+.Fl -no-auto-sign-commits
+or
+.Fl -no-auto-sign-tags ;
+opting out of a bit this repo already has on turns it back off.
+It never sets
+.Cm user.name .
+For GitHub's Verified badge the tag's email must be a verified GitHub email
+(the tagger line is what GitHub checks).
+If you already have a
+.Cm user.email
+configured (locally or globally) it is left untouched; otherwise it asks for
+your GitHub username and sets a repo-local
+.Cm user.email
+of
+.Ar user Ns @users.noreply.github.com ,
+a verified no-reply address \(en so
+.Fl -github-user Ar alice
+maps to
+.Cm user.email=alice@users.noreply.github.com .
+Under
+.Fl y
+it cannot prompt, so pass
+.Fl -github-user
+or
+.Fl -email .
+.Pq If you do not know your GitHub username: Ic gh api user --jq .login .
+.Bl -tag -width "-github-user user"
+.It Fl -no-auto-sign-commits
+Do not set
+.Cm commit.gpgsign
+(commits are auto-signed by default);
+if this repo already has it on, turn it off.
+.It Fl -no-auto-sign-tags
+Do not set
+.Cm tag.gpgsign
+(annotated tags are auto-signed by default);
+if this repo already has it on, turn it off.
+.It Fl -email Ar email
+Signer email: the
+.Pa allowed_signers
+principal, and \(en if you have no
+.Cm user.email \(en
+the value written to it.
+Overrides the derived no-reply address.
+.It Fl -github-user Ar user
+GitHub username: sets
+.Cm user.email
+to
+.Ar user Ns @users.noreply.github.com .
+Consulted only when you have no
+.Cm user.email
+configured; required in that case under
+.Fl y .
+.It Fl -key Ar keyfile
+Public key to sign with (default
+.Pa ~/.ssh/id_sod.pub ) .
+.It Fl -allowed-signers Ar file
+The allowed_signers file to record your key in and point
+.Cm gpg.ssh.allowedSignersFile
+at (default
+.Pa ~/.ssh/allowed_signers ) .
+.It Fl y
+Assume yes: apply without prompting.
+.It Fl -force
+Overwrite a conflicting existing signing configuration.
+.El
 .Sh ENVIRONMENT
 .Bl -tag -width SSH_AUTH_SOCK
 .It Ev SSH_AUTH_SOCK
@@ -193,15 +318,33 @@ sd ssh-add ~/.ssh/id_sod
 ssh -i ~/.ssh/id_sod user@host
 .Ed
 .Sh SEE ALSO
+.Xr gh 1 ,
+.Xr git 1 ,
+.Xr git-config 1 ,
 .Xr ssh 1 ,
 .Xr ssh-add 1 ,
 .Xr ssh-agent 1 ,
+.Xr ssh-copy-id 1 ,
 .Xr ssh-keygen 1
 .Sh AUTHORS
 .An Botanica Software Labs
 .Sh CAVEATS
 macOS only.
 The Secure Enclave requires Apple Silicon or a T2 chip.
+.Pp
+The agent does not enforce
+.Xr ssh-add 1
+key constraints \(em destination
+.Pq Fl h ,
+lifetime
+.Pq Fl t ,
+or confirm
+.Pq Fl c .
+A constrained add is
+.Em refused
+rather than honored as an unconstrained one, so a constraint that would not be
+enforced never appears to succeed.
+Touch ID gates every signature regardless.
 .Pp
 Agent forwarding
 .Pq Cm ssh Fl A
@@ -214,3 +357,16 @@ Detection relies on the
 .Ql session-bind@openssh.com
 binding sent by OpenSSH 8.9 and later; older clients that forward an agent
 cannot be distinguished.
+.Pp
+.Cm sd setup-git-signing
+never touches
+.Cm user.name ,
+only sets
+.Cm user.email
+when none is configured anywhere (it never overwrites an existing one), and
+never overwrites an existing signing configuration without
+.Fl -force .
+By default it auto-signs both commits and annotated tags; opt out with
+.Fl -no-auto-sign-commits
+or
+.Fl -no-auto-sign-tags .

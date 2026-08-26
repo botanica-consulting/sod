@@ -42,9 +42,13 @@ install: universal ## install to /usr/local (sudo)
 	sudo install -d /usr/local/bin /usr/local/share/man/man1
 	sudo install -m 0755 $(BIN) /usr/local/bin/sd
 	sudo install -m 0644 man/sd.1 /usr/local/share/man/man1/sd.1
+	sudo bash scripts/gen-completions.sh $(BIN)
 
 uninstall: ## remove local install + optional LaunchAgent
-	sudo rm -f /usr/local/bin/sd /usr/local/share/man/man1/sd.1
+	sudo rm -f /usr/local/bin/sd /usr/local/share/man/man1/sd.1 \
+	  /usr/local/share/zsh/site-functions/_sd \
+	  /usr/local/etc/bash_completion.d/sd \
+	  /usr/local/share/fish/vendor_completions.d/sd.fish
 	-launchctl bootout gui/$$(id -u)/consulting.botanica.sod.agent 2>/dev/null
 	rm -f ~/Library/LaunchAgents/consulting.botanica.sod.agent.plist
 

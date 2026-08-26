@@ -32,6 +32,11 @@ public struct Doctor: ParsableCommand {
             """
     )
 
+    // Hidden: dev diagnostics for people running more than one sd build (e.g. a local build
+    // alongside the installed one). Off for normal users so `sd doctor` output stays stable.
+    @Flag(name: .long, help: ArgumentHelp(visibility: .private))
+    var dev = false
+
     public init() {}
 
     public func run() throws {
@@ -208,6 +213,46 @@ public struct Doctor: ParsableCommand {
             )
         }
 
+        // Dev-only (--dev, hidden): flag when the login agent runs a DIFFERENT sd binary than the
+        // one you invoked — the agent-side mirror of the "sd on PATH" check. Normal installs match
+        // (symlinks resolved); a mismatch means your keys are served by some other build, so a
+        // freshly built agent/signing change won't take effect until you reload.
+        if dev {
+            let running = (exe as NSString).resolvingSymlinksInPath
+            if let agentBin = plistInfo?.binary {
+                if (agentBin as NSString).resolvingSymlinksInPath == running {
+                    r.pass("Agent binary (dev)", "login agent runs this same sd")
+                } else {
+                    r.warn(
+                        "Agent binary (dev)", "login agent runs a different sd: \(agentBin)",
+                        hint: "reload the agent with this build:  sd install   (or run one: sd ssh-agent -a <socket>)")
+                }
+            } else {
+                r.warn("Agent binary (dev)", "no login agent installed to compare against")
+            }
+        }
+
+        // 10. Git commit/tag signing (optional — warns, never fails; SSH-only users unaffected).
+        r.header("Git commit/tag signing (optional)")
+        if GitRunner.isInstalled() {
+            r.pass("git installed", GitRunner.binary.path)
+        } else {
+            r.warn("git installed", "no git at \(GitRunner.binary.path)", hint: "xcode-select --install")
+        }
+        if let gh = firstOnPath("gh") {
+            r.pass("gh installed", gh)
+        } else {
+            r.warn(
+                "gh installed", "not found — optional; handy for registering your signing key", hint: "brew install gh")
+        }
+        if GitRunner.isInstalled() {
+            if GitRunner.insideWorkTree() {
+                checkSigningConfig(&r, pubPath: pubPath)
+            } else {
+                r.pass("git SSH signing", "run inside a repo to check (configured per-repo)")
+            }
+        }
+
         r.summary()
         if r.failCount > 0 { throw ExitCode.failure }
     }
@@ -324,6 +369,51 @@ private func firstOnPath(_ name: String) -> String? {
         if FileManager.default.isExecutableFile(atPath: p) { return p }
     }
     return nil
+}
+
+/// Report the coherence of this repo's git SSH-signing config (read-only, repo-local).
+/// `pass` when nothing is configured (it's optional) or everything lines up; `warn` on a gap.
+private func checkSigningConfig(_ r: inout Report, pubPath: String) {
+    let fm = FileManager.default
+    let fmt = GitRunner.configGet("gpg.format")
+    let key = GitRunner.configGet("user.signingkey")
+    let signers = GitRunner.configGet("gpg.ssh.allowedSignersFile")
+
+    if fmt == nil && key == nil && signers == nil {
+        r.pass("git SSH signing", "not configured for this repo (optional) — set up:  sd setup-git-signing")
+    } else {
+        var issues: [String] = []
+        if fmt != "ssh" { issues.append("gpg.format is \(fmt ?? "unset") (want ssh)") }
+        if let k = key {
+            if !fm.fileExists(atPath: expandTilde(k)) { issues.append("user.signingkey points at a missing file") }
+        } else {
+            issues.append("user.signingkey unset")
+        }
+        if let s = signers {
+            let contents = (try? String(contentsOfFile: expandTilde(s), encoding: .utf8)) ?? ""
+            let pub = (try? String(contentsOfFile: pubPath, encoding: .utf8)) ?? ""
+            // The match is blob-based (allowedSignersContains ignores the principal), so any
+            // non-empty placeholder email yields a well-formed line to check against.
+            if let line = allowedSignersLine(email: "signer", pubLine: pub),
+                !allowedSignersContains(contents: contents, line: line)
+            {
+                issues.append("allowed_signers doesn't list id_sod")
+            }
+        } else {
+            issues.append("gpg.ssh.allowedSignersFile unset")
+        }
+        if issues.isEmpty {
+            r.pass("git SSH signing", "configured (gpg.format=ssh, signingkey + allowed_signers)")
+        } else {
+            r.warn("git SSH signing", issues.joined(separator: "; "), hint: "fix:  sd setup-git-signing")
+        }
+    }
+
+    if ["true", "yes", "on", "1"].contains((GitRunner.configGet("commit.gpgsign") ?? "").lowercased()) {
+        r.pass(
+            "commit.gpgsign",
+            "on — every commit is signed (Touch ID each); opt out: sd setup-git-signing --no-auto-sign-commits")
+    }
 }
 
 /// Ask the agent for its loaded identities (request 11 → answer 12). Returns the key
