@@ -1,0 +1,35 @@
+name: Publish Homebrew formula
+
+# Re-run ONLY the tap publish for a release that already exists — e.g. after rotating
+# HOMEBREW_TAP_TOKEN — without rebuilding, re-signing or re-attesting its artifacts.
+# release.yml runs the same script on every tag build; this is the manual retry.
+#
+#   gh workflow run publish-formula.yml -f tag=v0.2.1
+#
+# Opens (or reports) the "sod <version>" PR on botanica-consulting/homebrew-tap; a human
+# merges it to publish, exactly as on the tag build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish the formula for (e.g. v0.2.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}      # the script records `git rev-parse HEAD` as the formula's revision
+
+      - name: Render formula and open the tap PR
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GITHUB_REF_NAME: ${{ inputs.tag }}   # the script derives version + branch name from this
+        run: bash scripts/publish-formula.sh
