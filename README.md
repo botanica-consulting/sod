@@ -34,6 +34,7 @@ support required on the other end.
 | `sd ssh-keygen` | `ssh-keygen` | create a Secure-Enclave P-256 key (an opaque handle + a standard `.pub`) |
 | `sd ssh-agent` | `ssh-agent` | run the agent on a unix socket; print `SSH_AUTH_SOCK` to use it |
 | `sd ssh-add` | `ssh-add` | load / unload / list keys in the agent — no PIN prompt |
+| `sd ssh-copy-id` | `ssh-copy-id` | authorize your key on a server — defaults `-i ~/.ssh/id_sod.pub` |
 
 Plus **`sd install`** — the one-step login setup: it runs the agent at every login and
 prints the single line to add to your shell startup file (`sd uninstall` reverses it).
@@ -42,12 +43,18 @@ And **`sd doctor`** — a read-only health check of your whole setup (Secure Enc
 default key, the login agent, the live socket, and your shell wiring) that tells you
 exactly what to fix.
 
-## Why sod
+And **`sd setup-git-signing`** — configures the current repo to sign git commits and tags with
+your sod key over SSH (Touch ID per signature). By default it auto-signs both (opt out with
+`--no-auto-sign-commits` / `--no-auto-sign-tags`). It prints a plan and asks before changing
+anything, and won't overwrite an existing GPG setup without `--force`.
 
-- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
-  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
+## Why sod
+- **Minimal.** CLI-only, idiomatic, minimal surface interoping Secure Enclave to OpenSSH utilities.
+  Barebones, no-fluff. 
 - **Presence on every signature.** Touch ID with
   passcode fallback, durable across fingerprint re-enrollment.
+- **Non-exportable.** The handle file is an opaque, device-bound blob with no usable
+  secret. Only this Mac's Secure Enclave can use the key, and only through the agent.
 - **Stock OpenSSH.** Speaks the ssh-agent protocol; no patched `ssh`, no kernel
   extensions, no daemons running as root.
 - **Zero conf.** Runs as an independent ssh agent, does not meddle with your other SSH key flows.
@@ -77,8 +84,9 @@ Builds from source, so it needs a Swift toolchain — the Xcode **Command Line T
 
 Download `sod-<version>.pkg` from [Releases](https://github.com/botanica-consulting/sod/releases)
 and open it. It's a **notarized, universal binary**: no Homebrew, no compiler, nothing to
-build. It copies `sd` to `/usr/local/bin` (plus its man page) and **nothing else** — it does
-not touch your shell startup files or any agent. You still run `sd install` once afterward.
+build. It copies `sd` to `/usr/local/bin` (plus its man page and shell completions) and
+**nothing else** — it does not touch your shell startup files or any agent. You still run
+`sd install` once afterward.
 
 ### From source
 
@@ -86,6 +94,17 @@ not touch your shell startup files or any agent. You still run `sd install` once
 git clone https://github.com/botanica-consulting/sod && cd sod
 make install      # builds a universal binary, installs to /usr/local (sudo)
 # or just: swift build -c release   (binary at .build/release/sd)
+```
+
+### Shell completions
+
+Homebrew and the `.pkg` install zsh / bash / fish completions automatically, and so does
+`make install`. After a bare `swift build`, generate them yourself:
+
+```sh
+sd --generate-completion-script zsh  > /usr/local/share/zsh/site-functions/_sd
+sd --generate-completion-script bash > /usr/local/etc/bash_completion.d/sd
+sd --generate-completion-script fish > /usr/local/share/fish/vendor_completions.d/sd.fish
 ```
 
 ## Quickstart
@@ -109,7 +128,7 @@ at the agent — it never edits your startup file for you; you run the printed `
 Authorize the key on your server first:
 
 ```sh
-ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+sd ssh-copy-id user@host       # appends ~/.ssh/id_sod.pub to the server
 ssh user@host          # Touch ID on connect
 ```
 
@@ -179,7 +198,7 @@ sd ssh-add -d ~/keys/work     # unload one          (-D to unload all, incl. id_
 **Authorize and connect.** Put the `.pub` on the server, then connect:
 
 ```sh
-ssh-copy-id -i ~/.ssh/id_sod.pub user@host
+sd ssh-copy-id user@host       # appends ~/.ssh/id_sod.pub to the server
 ssh user@host                  # Touch ID on connect
 ```
 
@@ -203,6 +222,24 @@ of giving a false sense of it.) Touch ID still gates every signature regardless.
 ssh-add -h relay.example.com -s ~/.ssh/id_sod   # refused: "agent refused operation"
 ssh-add -s ~/.ssh/id_sod                        # add without constraints — works
 ```
+
+**Git commit/tag signing.** `sd setup-git-signing` (run inside a repo) points git at your sod
+key for SSH signing — it sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_sod.pub`, and
+`gpg.ssh.allowedSignersFile`, and appends your key to `allowed_signers`. By default it sets
+`commit.gpgsign` **and** `tag.gpgsign`, so every commit and annotated tag is signed automatically
+(each one a Touch ID) — opt out with `--no-auto-sign-commits` / `--no-auto-sign-tags` and sign
+deliberately with `git commit -S` / `git tag -s` instead. Local verification (`git tag -v`,
+`git log --show-signature`) reads `allowed_signers`. For GitHub's
+green **Verified** badge the tag's `user.email` must be a *verified GitHub email* (that's the
+tagger line GitHub checks) — so if you have none configured, `setup-git-signing` asks for your
+GitHub username and sets a repo-local `user.email` of `<user>@users.noreply.github.com`, i.e.
+`--github-user alice` → `user.email=alice@users.noreply.github.com` (a verified no-reply address;
+an existing `user.email` is left untouched). Under `-y` it can't prompt, so pass `--github-user`
+or `--email` (don't know your username? `gh api user --jq .login`). You also need the *same* key
+registered as a **Signing key** on GitHub (`gh ssh-key add ~/.ssh/id_sod.pub --type signing`).
+To confirm it's registered: `gh ssh-key list`, your [SSH keys settings](https://github.com/settings/keys),
+or the public API — `curl -s https://api.github.com/users/<you>/ssh_signing_keys`. The definitive
+check is the **Verified** badge on your first signed tag.
 
 ## How it works
 
@@ -242,7 +279,7 @@ SE_SSH_MOCK=1 bash scripts/selftest.sh /tmp/k  # full generate → agent → ssh
 
 The mock is compiled **only** when `SE_SSH_MOCK` is set, so it is physically absent
 from any release build (which prints a loud warning if you somehow build one). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the lint and coverage commands.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the build, test, and lint commands.
 
 ## Project layout
 

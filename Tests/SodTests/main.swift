@@ -10,6 +10,8 @@ let harness = Harness()
 harness.runWireSuite()
 runInstallSuite(harness)
 runDoctorSuite(harness)
+runCopyIdSuite(harness)
+runSetupGitSigningSuite(harness)
 #if SE_SSH_MOCK
 runKeyStoreSuite(harness)
 runAgentSuite(harness)

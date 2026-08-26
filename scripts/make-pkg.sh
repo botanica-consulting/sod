@@ -20,6 +20,9 @@ install -d "$ROOT/usr/local/bin" "$ROOT/usr/local/share/man/man1"
 install -m 0755 dist/sd   "$ROOT/usr/local/bin/sd"
 install -m 0644 man/sd.1  "$ROOT/usr/local/share/man/man1/sd.1"
 
+# Shell completions, generated from the staged binary so they always match the CLI.
+bash scripts/gen-completions.sh dist/sd "$ROOT"
+
 # Strip extended attributes (quarantine/provenance) so pkgbuild doesn't embed
 # AppleDouble (._*) sidecar files into the payload.
 xattr -cr "$ROOT" 2>/dev/null || true
