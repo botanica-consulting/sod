@@ -25,7 +25,8 @@ public struct MockP256Backend: KeyBackend {
         }
     }
 
-    public func sign(handle: Data, data: Data) throws -> Data {
+    public func sign(handle: Data, data: Data, reason: String) throws -> Data {
+        _ = reason  // no prompt in the mock
         do {
             return try P256.Signing.PrivateKey(rawRepresentation: handle).signature(for: data).rawRepresentation
         } catch { throw KeyBackendError.sign("\(error)") }

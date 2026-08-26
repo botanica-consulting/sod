@@ -34,7 +34,9 @@ public protocol KeyBackend {
     func publicKey(forHandle handle: Data) throws -> Data
 
     /// Sign `data`, returning raw 64-byte `r‖s`. The real backend triggers Touch ID.
-    func sign(handle: Data, data: Data) throws -> Data
+    /// Sign `data` with the handle's key. `reason` is shown on the Touch ID prompt (real backend);
+    /// the mock ignores it.
+    func sign(handle: Data, data: Data, reason: String) throws -> Data
 }
 
 /// On-disk handle file format: `MAGIC || kind(1) || handle`.
