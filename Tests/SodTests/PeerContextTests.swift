@@ -95,8 +95,11 @@ func runPeerContextSuite(_ h: Harness) {
     h.eq(gitRepoName(cwd: deep.path, maxDepth: 1), nil, "depth cap stops the walk before the repo root")
     h.eq(gitRepoName(cwd: deep.path, maxDepth: 3), "my-repo", "within the cap the repo is found")
 
-    // ---- the live kernel path: a socketpair makes this process its own peer ----
+    // ---- the live kernel path: a socketpair makes this process its own peer, and a loopback
+    // TCP connection to ourselves gives that peer an established socket to report ----
     var fds: [Int32] = [0, 0]
+    let loop = LoopbackTCP()
+    defer { loop?.tearDown() }
     if socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 {
         defer { close(fds[0]); close(fds[1]) }
         if let me = PeerContext.capture(fd: fds[0]) {
@@ -111,6 +114,13 @@ func runPeerContextSuite(_ h: Harness) {
             h.ok(
                 !me.argv.isEmpty && me.argv[0].hasSuffix("sod-tests"),
                 "argv resolved via KERN_PROCARGS2: \(me.argv.first ?? "nil")")
+            if let loop {
+                h.ok(
+                    me.remotes.contains(RemoteEndpoint(address: "127.0.0.1", port: loop.port)),
+                    "established TCP connection reported via proc_pidfdinfo: \(me.remotes)")
+            } else {
+                h.fail("loopback TCP fixture failed")
+            }
         } else {
             h.fail("PeerContext.capture returned nil for a same-uid socketpair peer (size/uid checks too strict?)")
         }
@@ -147,4 +157,96 @@ func runPeerContextSuite(_ h: Harness) {
     h.eq(signReason(for: userauth, peer: nil), "log in over SSH with your sod key", "userauth, no peer -> generic")
     h.eq(signReason(for: userauth, peer: unsafe), "log in over SSH with your sod key", "unsafe host name -> generic")
     h.eq(signReason(for: Data([1, 2, 3]), peer: toHost), "sign with your sod key", "unknown payload ignores context")
+
+    // ---- the shared fingerprint helper (sd ssh-keygen / sd ssh-add -l) ----
+    // github.com's published ED25519 host key; the expected line is `ssh-keygen -lf` on it.
+    let ghEd25519 = Data(base64Encoded: "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl")!
+    h.eq(
+        sshKeyFingerprint(ghEd25519), "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU",
+        "fingerprint matches ssh-keygen -l")
+
+    // ---- the peer's TCP connection names the address ----
+    let gh4 = RemoteEndpoint(address: "140.82.121.4", port: 22)
+    let gh6 = RemoteEndpoint(address: "2606:50c0:8000::153", port: 22)
+    h.eq(sshRemote(remotes: [gh4]), gh4, "exactly one connection -> that one")
+    h.eq(sshRemote(remotes: []), nil, "no connection (ProxyJump destination) -> nil")
+    h.eq(sshRemote(remotes: [gh4, gh6]), nil, "several connections -> ambiguous, nil")
+    h.eq(gh4.promptText, "140.82.121.4", "default port omitted")
+    h.eq(RemoteEndpoint(address: "140.82.121.4", port: 2222).promptText, "140.82.121.4:2222", "other port shown")
+    h.eq(gh6.promptText, "2606:50c0:8000::153", "IPv6 bare on port 22")
+    h.eq(
+        RemoteEndpoint(address: "2606:50c0:8000::153", port: 2222).promptText, "[2606:50c0:8000::153]:2222",
+        "IPv6 bracketed with a port")
+    h.ok(isSafePromptAddress("[2606:50c0:8000::153]:2222"), "rendered address passes the sanitizer")
+    h.ok(!isSafePromptAddress("140.82.121.4 (trusted)"), "anything but an address is refused")
+
+    let toHostAt = PeerContext(
+        pid: 1, executable: "/usr/bin/ssh", cwd: "/", argv: ["ssh", "-T", "git@github.com"], remotes: [gh4])
+    let noName = PeerContext(pid: 1, executable: "/usr/bin/ssh", cwd: "/", argv: [], remotes: [gh4])
+    let literal = PeerContext(
+        pid: 1, executable: "/usr/bin/ssh", cwd: "/", argv: ["ssh", "140.82.121.4"], remotes: [gh4])
+    let jumped = PeerContext(
+        pid: 1, executable: "/usr/bin/ssh", cwd: "/", argv: ["ssh", "-J", "jump", "inner"], remotes: [])
+    h.eq(
+        signReason(for: userauth, peer: toHostAt), "log in to github.com (140.82.121.4) over SSH with your sod key",
+        "name + address")
+    h.eq(
+        signReason(for: userauth, peer: noName), "log in to 140.82.121.4 over SSH with your sod key",
+        "address alone still says where")
+    h.eq(
+        signReason(for: userauth, peer: literal), "log in to 140.82.121.4 over SSH with your sod key",
+        "a literal-IP host is not repeated")
+    h.eq(
+        signReason(for: userauth, peer: jumped), "log in to inner over SSH with your sod key",
+        "no connection of its own (ProxyJump) -> name only")
+    h.eq(
+        signReason(for: gitSig, peer: toHostAt), "sign a git commit or tag with your sod key",
+        "git signing ignores connections")
+}
+
+/// A TCP connection from this process to itself over loopback — listener, client and the
+/// accepted server side — so the process holds ESTABLISHED sockets for `PeerContext.capture`
+/// to find. `port` is the listener's, i.e. the remote port the client side reports.
+private final class LoopbackTCP {
+    private(set) var port: UInt16 = 0
+    private var fds: [Int32] = []
+
+    init?() {
+        let len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(len)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_port = 0  // kernel picks
+
+        let lfd = socket(AF_INET, SOCK_STREAM, 0)
+        guard lfd >= 0 else { return nil }
+        fds.append(lfd)
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(lfd, $0, len) }
+        }
+        guard bound == 0, listen(lfd, 1) == 0 else { tearDown(); return nil }
+        var gotLen = len
+        let named = withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(lfd, $0, &gotLen) }
+        }
+        guard named == 0 else { tearDown(); return nil }
+        port = UInt16(bigEndian: addr.sin_port)
+
+        let cfd = socket(AF_INET, SOCK_STREAM, 0)
+        guard cfd >= 0 else { tearDown(); return nil }
+        fds.append(cfd)
+        let connected = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(cfd, $0, len) }
+        }
+        guard connected == 0 else { tearDown(); return nil }
+        let afd = accept(lfd, nil, nil)
+        guard afd >= 0 else { tearDown(); return nil }
+        fds.append(afd)
+    }
+
+    func tearDown() {
+        for fd in fds { close(fd) }
+        fds = []
+    }
 }

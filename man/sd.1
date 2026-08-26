@@ -360,9 +360,12 @@ cannot be distinguished.
 .Pp
 The Touch ID prompt names what is being signed and, when known, for what: the
 repository containing the requesting process's working directory for git
-signatures, or the destination host from the requesting
+signatures, or, for logins, the destination host from the requesting
 .Xr ssh 1
-command line for logins.
+command line together with the address of the TCP connection that
+.Xr ssh 1
+holds while it authenticates
+.Pq its only one at that point; a ProxyJump destination has none .
 This context is informational only \(em it is reported by the requesting
 process, which any process running as the same user could fake \(em and is
 meant to catch a mistimed tap, not to serve as a security control.

@@ -2,28 +2,33 @@ import Darwin
 import Foundation
 
 /// Who is on the other end of an agent socket connection, learned from the kernel at accept
-/// time: the peer's pid, executable, working directory and argument vector. Used only to make
-/// the Touch ID reason more specific ("… in <repo>", "… to <host>").
+/// time: the peer's pid, executable, working directory, argument vector and the TCP connections
+/// it holds. Used only to make the Touch ID reason more specific ("… in <repo>", "… to <host>
+/// (<address>)").
 ///
 /// Everything here is *advisory*. cwd and argv are under the peer's control, and any process
-/// running as the same user can chdir into a repo or fake its argv, so this context guards
-/// against a mistimed tap on the wrong request — it is not, and must not be read as, a
-/// security control. Nothing in the signing decision depends on it.
+/// running as the same user can chdir into a repo, fake its argv or open a socket to anywhere,
+/// so this context guards against a mistimed tap on the wrong request — it is not, and must not
+/// be read as, a security control. Nothing in the signing decision depends on it.
 ///
 /// Because the inputs are peer-influenced, every kernel-supplied buffer is decoded by explicit
 /// length — never by scanning for a NUL terminator — and every count the kernel reports
-/// (`argc`, buffer sizes, struct fill) is range-checked before use.
+/// (`argc`, buffer sizes, struct fill, descriptor counts) is range-checked before use.
 public struct PeerContext: Sendable {
     public let pid: pid_t
     public let executable: String?
     public let cwd: String?
     public let argv: [String]
+    /// The remote side of every established TCP connection the peer holds — for an `ssh` that is
+    /// authenticating, the server it is talking to.
+    public let remotes: [RemoteEndpoint]
 
-    public init(pid: pid_t, executable: String?, cwd: String?, argv: [String]) {
+    public init(pid: pid_t, executable: String?, cwd: String?, argv: [String], remotes: [RemoteEndpoint] = []) {
         self.pid = pid
         self.executable = executable
         self.cwd = cwd
         self.argv = argv
+        self.remotes = remotes
     }
 
     /// Identify the peer of a connected unix-domain socket. Returns nil if the kernel won't say
@@ -39,7 +44,8 @@ public struct PeerContext: Sendable {
         // check keeps a root-owned or misconfigured connection from having its context echoed.
         guard ownerUID(of: pid) == getuid() else { return nil }
         return PeerContext(
-            pid: pid, executable: executablePath(of: pid), cwd: workingDirectory(of: pid), argv: arguments(of: pid))
+            pid: pid, executable: executablePath(of: pid), cwd: workingDirectory(of: pid), argv: arguments(of: pid),
+            remotes: tcpRemotes(of: pid))
     }
 
     // MARK: kernel queries
@@ -78,6 +84,50 @@ public struct PeerContext: Sendable {
         return parseProcArgs(Array(raw.prefix(size)))
     }
 
+    /// The remote address of every ESTABLISHED TCP socket the peer holds — what `lsof -p` lists.
+    /// The descriptor table is read in one bounded pass; each socket's info must fill its whole
+    /// struct before a field of it is trusted, and addresses are rendered by `inet_ntop` into a
+    /// fixed buffer and decoded within that bound.
+    private static func tcpRemotes(of pid: pid_t) -> [RemoteEndpoint] {
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        // Sized by asking first (buffer nil); the count is capped, never trusted as-is.
+        let need = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard need > 0 else { return [] }
+        let count = min(Int(need) / stride, maxFDs)
+        guard count > 0 else { return [] }
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
+        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(count * stride))
+        guard got > 0 else { return [] }
+        let filled = min(Int(got) / stride, count)
+
+        var out: [RemoteEndpoint] = []
+        for fd in fds.prefix(filled) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            var si = socket_fdinfo()
+            let want = Int32(MemoryLayout<socket_fdinfo>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, want) == want else { continue }
+            guard si.psi.soi_kind == SOCKINFO_TCP, si.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_ESTABLISHED
+            else { continue }
+            let ini = si.psi.soi_proto.pri_tcp.tcpsi_ini
+            // Ports are stored in network byte order, as in the inpcb they were copied from.
+            let port = UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_fport))
+            var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            let rendered: Bool
+            if Int32(ini.insi_vflag) & INI_IPV4 != 0 {
+                var a4 = ini.insi_faddr.ina_46.i46a_addr4
+                rendered = inet_ntop(AF_INET, &a4, &text, socklen_t(text.count)) != nil
+            } else if Int32(ini.insi_vflag) & INI_IPV6 != 0 {
+                var a6 = ini.insi_faddr.ina_6
+                rendered = inet_ntop(AF_INET6, &a6, &text, socklen_t(text.count)) != nil
+            } else {
+                rendered = false
+            }
+            guard rendered, let address = decodeCString(text.map { UInt8(bitPattern: $0) }, limit: text.count)
+            else { continue }
+            out.append(RemoteEndpoint(address: address, port: port))
+        }
+        return out
+    }
+
     // MARK: bounded decoders (pure; unit-tested with hostile inputs)
 
     /// The kernel caps a process's argument+environment block at ARG_MAX (1 MiB on macOS);
@@ -85,6 +135,8 @@ public struct PeerContext: Sendable {
     public static let maxProcArgsBytes = 1 << 20
     /// More arguments than this is not a plausible `ssh`/`ssh-keygen` invocation.
     public static let maxArgc = 4096
+    /// More open descriptors than this is not a plausible `ssh`; the table read stops here.
+    public static let maxFDs = 4096
 
     /// Decode a C string from `bytes`, reading at most `limit` bytes and stopping at the first
     /// NUL. Never scans past `limit` or past the array, so an unterminated buffer yields the
@@ -112,7 +164,39 @@ public struct PeerContext: Sendable {
     }
 }
 
+/// The far side of one TCP connection, as the kernel reports it.
+public struct RemoteEndpoint: Sendable, Equatable {
+    public let address: String  // as inet_ntop renders it: dotted quad, or compressed IPv6
+    public let port: UInt16
+
+    public init(address: String, port: UInt16) {
+        self.address = address
+        self.port = port
+    }
+
+    /// How the endpoint reads in the prompt: the bare address, with the port only when it isn't
+    /// ssh's default — bracketed for IPv6, the way ssh itself writes `[addr]:port`.
+    public var promptText: String {
+        if port == 22 { return address }
+        return address.contains(":") ? "[\(address)]:\(port)" : "\(address):\(port)"
+    }
+}
+
 // MARK: - pure helpers (unit-tested without a socket)
+
+/// The server an `ssh` is connected to, if the peer holds exactly one established TCP
+/// connection. While ssh authenticates that is all it has — port forwardings and multiplexed
+/// sessions come afterwards — and a ProxyJump/ProxyCommand destination has none of its own (the
+/// hop's ssh does, and is prompted for separately), so anything but exactly one means "unknown".
+public func sshRemote(remotes: [RemoteEndpoint]) -> RemoteEndpoint? {
+    remotes.count == 1 ? remotes[0] : nil
+}
+
+/// An address is echoed into the sheet only if it looks like one: hex digits, dots, colons and
+/// brackets. `inet_ntop` never produces anything else; this guards the rendering path anyway.
+public func isSafePromptAddress(_ s: String) -> Bool {
+    !s.isEmpty && s.count <= 64 && s.allSatisfy { $0.isASCII && ($0.isHexDigit || ".:[]".contains($0)) }
+}
 
 /// The destination host of an `ssh` invocation, from its argv: the first non-option argument,
 /// with `user@`, an `ssh://` scheme and a `:port` stripped. nil if there is none. Understands
