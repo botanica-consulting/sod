@@ -335,6 +335,12 @@ no keychain item to clean up, because the blob is the only reference to it.
   secret; only this Mac's SE can use it.
 - `.userPresence` = Touch ID with passcode fallback, durable across re-enrollment.
 - Listing identities / reading the public key never prompts; only signing does.
+- **The Touch ID sheet names the request.** The reason line is derived from what is being
+  signed and who asked: `sign a git commit or tag in <repo>` (the repo found from the requesting
+  process's working directory) or `log in to <host> over SSH` (the host from the requesting
+  `ssh` command line). That context is informational — it comes from the requesting process,
+  which anything running as you could fake — so treat it as a guard against a mistimed tap,
+  not as a security control. Forwarded connections get the generic wording.
 - **Agent forwarding (`ssh -A`) is refused by default** — a forwarded connection sees an empty
   agent and gets no signatures, so a remote host can't use the key. `ProxyJump` (`-J`) and
   direct connections are unaffected. Opt in with `sd ssh-agent --allow-agent-forwarding`.

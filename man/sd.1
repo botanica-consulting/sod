@@ -358,6 +358,15 @@ Detection relies on the
 binding sent by OpenSSH 8.9 and later; older clients that forward an agent
 cannot be distinguished.
 .Pp
+The Touch ID prompt names what is being signed and, when known, for what: the
+repository containing the requesting process's working directory for git
+signatures, or the destination host from the requesting
+.Xr ssh 1
+command line for logins.
+This context is informational only \(em it is reported by the requesting
+process, which any process running as the same user could fake \(em and is
+meant to catch a mistimed tap, not to serve as a security control.
+.Pp
 .Cm sd setup-git-signing
 never touches
 .Cm user.name ,
