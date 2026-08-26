@@ -10,7 +10,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${HOMEBREW_TAP_TOKEN:?publish-formula: HOMEBREW_TAP_TOKEN unset}"
-TAG="${GITHUB_REF_NAME:?publish-formula: GITHUB_REF_NAME unset}"   # e.g. v0.1.0
+# The tag: SOD_TAG when given (publish-formula.yml — GitHub won't let a job override
+# GITHUB_REF_NAME), else the ref of the tag build that invoked us.
+TAG="${SOD_TAG:-${GITHUB_REF_NAME:?publish-formula: neither SOD_TAG nor GITHUB_REF_NAME set}}"   # e.g. v0.1.0
+case "$TAG" in v[0-9]*) ;; *) echo "publish-formula: '$TAG' is not a release tag (expected vX.Y.Z)" >&2; exit 2 ;; esac
 VERSION="${TAG#v}"
 REVISION="$(git rev-parse HEAD)"                                   # the tagged commit
 

@@ -31,5 +31,5 @@ jobs:
       - name: Render formula and open the tap PR
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          GITHUB_REF_NAME: ${{ inputs.tag }}   # the script derives version + branch name from this
+          SOD_TAG: ${{ inputs.tag }}   # GITHUB_REF_NAME can't be overridden, so the script takes this
         run: bash scripts/publish-formula.sh
