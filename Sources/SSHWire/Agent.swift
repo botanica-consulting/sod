@@ -35,6 +35,10 @@ extension SSHWire {
         // The wire PIN field is parsed but dropped (the SE gates on Touch ID).
         case addSmartcardKey(provider: String)
         case removeSmartcardKey(provider: String)
+        // `ssh-add` with key constraints (`-h` destination, `-t` lifetime, `-c` confirm).
+        // We surface it as its own case so the agent can refuse it: sod does not enforce
+        // these constraints, and silently dropping them would fake a control we don't honor.
+        case addSmartcardKeyConstrained(provider: String)
         case unsupported(type: UInt8)
     }
 
@@ -103,9 +107,8 @@ extension SSHWire {
             }
             return .signRequest(keyBlob: keyBlob, data: data, flags: flags)
 
-        case Agent.addSmartcardKey, Agent.addSmartcardKeyConstrained, Agent.removeSmartcardKey:
-            // provider path, then a PIN we read only to stay wire-aligned and discard;
-            // the constrained variant's trailing constraints are ignored.
+        case Agent.addSmartcardKey, Agent.removeSmartcardKey:
+            // provider path, then a PIN we read only to stay wire-aligned and discard.
             var r = ByteReader(payload)
             guard let prov = try? r.readString(), (try? r.readString()) != nil else {
                 return .unsupported(type: type)
@@ -114,6 +117,15 @@ extension SSHWire {
             return type == Agent.removeSmartcardKey
                 ? .removeSmartcardKey(provider: provider)
                 : .addSmartcardKey(provider: provider)
+
+        case Agent.addSmartcardKeyConstrained:
+            // Provider + PIN, then the constraints we deliberately don't parse: sod enforces
+            // none of them (destination `-h`, lifetime `-t`, confirm `-c`), so we route this
+            // to a distinct case the agent refuses rather than honoring it as an unconstrained
+            // add. Recover the provider for a clear log line; reject even if it's malformed.
+            var r = ByteReader(payload)
+            let provider = (try? r.readString()).map { String(decoding: $0, as: UTF8.self) } ?? "<unparsed>"
+            return .addSmartcardKeyConstrained(provider: provider)
 
         default:
             return .unsupported(type: type)

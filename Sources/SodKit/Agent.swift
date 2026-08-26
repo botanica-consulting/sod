@@ -115,6 +115,17 @@ public func handleRequest(type: UInt8, payload: Data, state: AgentState) -> Data
         if state.add(provider) { elog("loaded \(provider)"); return SSHWire.success() }
         elog("no sod handle at \(provider)"); return SSHWire.failure()
 
+    case .addSmartcardKeyConstrained(let provider):  // ssh-add -h/-t/-c <provider>
+        // Refuse rather than serve an unconstrained key under a constraint we ignore.
+        // sod gates every signature on Touch ID but enforces no destination/lifetime/confirm
+        // constraint; accepting one would be a false promise. The client sees a generic
+        // "agent refused operation" — the add visibly fails, which is the point.
+        elog(
+            "refused constrained add of \(provider): sod does not enforce ssh-add key "
+                + "constraints (-h destination / -t lifetime / -c confirm). Re-add without "
+                + "constraints if Touch-ID-on-every-use is acceptable as the only gate.")
+        return SSHWire.failure()
+
     case .removeSmartcardKey(let provider):  // ssh-add -e <provider>
         if state.remove(provider) { elog("unloaded \(provider)"); return SSHWire.success() }
         return SSHWire.failure()
