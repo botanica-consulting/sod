@@ -110,7 +110,7 @@ public func signReason(for data: Data, peer: PeerContext? = nil) -> String {
     case .sshsig(let ns) where isSafePromptNamespace(ns):
         switch ns {
         case "git":
-            if let repo = peer?.cwd.flatMap(gitRepoName(cwd:)), isSafePromptName(repo) {
+            if let repo = peer?.cwd.flatMap({ gitRepoName(cwd: $0) }), isSafePromptName(repo) {
                 action = "sign a git commit or tag in \(repo)"
             } else {
                 action = "sign a git commit or tag"

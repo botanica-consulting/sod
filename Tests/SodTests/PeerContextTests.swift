@@ -41,6 +41,60 @@ func runPeerContextSuite(_ h: Harness) {
     h.eq(gitRepoName(cwd: worktree.path), "wt", ".git file (worktree) counts")
     h.eq(gitRepoName(cwd: plain.path), nil, "no .git above -> nil (fixture dir has none)")
 
+    // ---- bounded decoding of kernel buffers (hostile inputs) ----
+    h.eq(PeerContext.decodeCString([0x41, 0x42, 0x43, 0, 0x44], limit: 5), "ABC", "stops at first NUL")
+    h.eq(PeerContext.decodeCString([0x41, 0x42, 0x43], limit: 3), "ABC", "unterminated buffer -> bounded prefix, no overrun")
+    h.eq(PeerContext.decodeCString([0x41, 0x42, 0x43], limit: 2), "AB", "limit shorter than buffer is honoured")
+    h.eq(PeerContext.decodeCString([0x41, 0x42], limit: 100), "AB", "limit longer than buffer is clamped to the array")
+    h.eq(PeerContext.decodeCString([0, 0x41], limit: 2), nil, "leading NUL -> nil")
+    h.eq(PeerContext.decodeCString([], limit: 10), nil, "empty -> nil")
+    h.eq(PeerContext.decodeCString([0x41], limit: -1), nil, "negative limit -> nil")
+    h.eq(PeerContext.decodeCString([0xff, 0xfe, 0x41], limit: 3), "\u{FFFD}\u{FFFD}A", "invalid UTF-8 replaced, not trapped")
+
+    func procArgs(argc: Int32, _ items: [String], env: [String] = ["HOME=/x"]) -> [UInt8] {
+        var out = withUnsafeBytes(of: argc.littleEndian) { Array($0) }
+        for s in items { out += Array(s.utf8) + [0] }
+        out += [0, 0, 0]  // the padding the kernel leaves after the exec path
+        for s in env { out += Array(s.utf8) + [0] }
+        return out
+    }
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: 2, ["/usr/bin/ssh", "ssh", "host"])), ["ssh", "host"], "well-formed image")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: 5, ["/usr/bin/ssh", "ssh", "host"])), ["ssh", "host", "HOME=/x"],
+         "argc overclaims -> bounded by what's present (environment may leak into the tail, never past the buffer)")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: 1, ["/usr/bin/ssh", "ssh", "host"])), ["ssh"], "argc underclaims -> truncated")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: 0, ["/usr/bin/ssh", "ssh"])), [], "argc 0 -> nothing")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: -1, ["/usr/bin/ssh", "ssh"])), [], "negative argc -> nothing")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: Int32.max, ["/usr/bin/ssh", "ssh"])), [], "absurd argc -> refused")
+    h.eq(PeerContext.parseProcArgs(procArgs(argc: Int32(PeerContext.maxArgc + 1), ["/usr/bin/ssh", "ssh"])), [], "argc above cap -> refused")
+    h.eq(PeerContext.parseProcArgs([]), [], "empty image -> nothing")
+    h.eq(PeerContext.parseProcArgs([2, 0, 0, 0]), [], "argc only, no strings -> nothing")
+    h.eq(PeerContext.parseProcArgs([2, 0, 0]), [], "truncated argc -> nothing")
+    h.eq(PeerContext.parseProcArgs([2, 0, 0, 0, 0x41, 0x42]), [], "exec path only, unterminated -> nothing (dropped as argv[0])")
+    h.ok(PeerContext.maxProcArgsBytes == 1 << 20, "ARG_MAX cap is 1 MiB")
+
+    // ---- repo walk is bounded and path-validated ----
+    h.eq(gitRepoName(cwd: "relative/path"), nil, "relative cwd rejected")
+    h.eq(gitRepoName(cwd: String(repeating: "/a", count: 600)), nil, "over-long cwd rejected")
+    h.eq(gitRepoName(cwd: deep.path, maxDepth: 1), nil, "depth cap stops the walk before the repo root")
+    h.eq(gitRepoName(cwd: deep.path, maxDepth: 3), "my-repo", "within the cap the repo is found")
+
+    // ---- the live kernel path: a socketpair makes this process its own peer ----
+    var fds: [Int32] = [0, 0]
+    if socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 {
+        defer { close(fds[0]); close(fds[1]) }
+        if let me = PeerContext.capture(fd: fds[0]) {
+            h.eq(me.pid, getpid(), "socketpair peer is ourselves")
+            h.ok(me.executable?.hasSuffix("sod-tests") == true, "executable resolved via proc_pidpath: \(me.executable ?? "nil")")
+            let want = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).resolvingSymlinksInPath().path
+            h.eq(me.cwd.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, want, "cwd resolved via proc_pidinfo")
+            h.ok(!me.argv.isEmpty && me.argv[0].hasSuffix("sod-tests"), "argv resolved via KERN_PROCARGS2: \(me.argv.first ?? "nil")")
+        } else {
+            h.fail("PeerContext.capture returned nil for a same-uid socketpair peer (size/uid checks too strict?)")
+        }
+    } else {
+        h.fail("socketpair failed")
+    }
+
     // ---- sanitizer ----
     h.ok(isSafePromptName("github.com"), "hostname safe")
     h.ok(isSafePromptName("my-repo_2"), "repo name safe")
