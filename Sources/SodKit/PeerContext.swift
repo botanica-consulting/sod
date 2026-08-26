@@ -38,7 +38,8 @@ public struct PeerContext: Sendable {
         // Only describe peers that are us. The socket mode should already guarantee this; the
         // check keeps a root-owned or misconfigured connection from having its context echoed.
         guard ownerUID(of: pid) == getuid() else { return nil }
-        return PeerContext(pid: pid, executable: executablePath(of: pid), cwd: workingDirectory(of: pid), argv: arguments(of: pid))
+        return PeerContext(
+            pid: pid, executable: executablePath(of: pid), cwd: workingDirectory(of: pid), argv: arguments(of: pid))
     }
 
     // MARK: kernel queries
@@ -119,7 +120,9 @@ public struct PeerContext: Sendable {
 /// and `-vT`-style flag clusters don't swallow the host.
 public func sshDestination(argv: [String]) -> String? {
     // ssh(1) options that take an argument. Anything else starting with "-" is a bare flag.
-    let takesValue: Set<Character> = ["B", "b", "c", "D", "E", "e", "F", "I", "i", "J", "L", "l", "m", "O", "o", "p", "P", "Q", "R", "S", "W", "w"]
+    let takesValue: Set<Character> = [
+        "B", "b", "c", "D", "E", "e", "F", "I", "i", "J", "L", "l", "m", "O", "o", "p", "P", "Q", "R", "S", "W", "w",
+    ]
     var it = argv.dropFirst().makeIterator()
     while let tok = it.next() {
         if tok == "--" { return it.next().flatMap(hostPart) }
@@ -127,7 +130,9 @@ public func sshDestination(argv: [String]) -> String? {
         // A flag cluster ("-vT", "-p", "-p2222"). If a value-taking option ends the cluster, the
         // value is the next token; if it sits mid-cluster the rest of the token is its value.
         let cluster = tok.dropFirst()
-        if let last = cluster.last, takesValue.contains(last), cluster.count == 1 || !cluster.dropLast().contains(where: takesValue.contains) {
+        if let last = cluster.last, takesValue.contains(last),
+            cluster.count == 1 || !cluster.dropLast().contains(where: takesValue.contains)
+        {
             _ = it.next()
         }
     }
