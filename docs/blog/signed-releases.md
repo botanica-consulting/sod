@@ -1,11 +1,10 @@
 ---
-title: "Signed and attested releases with sod + gh"
+title: "How we sign our commits and releases — sod + GitHub attestations"
 description: >
-  Minimal setup: sign only your release tags with a Secure Enclave key — one Touch ID per
-  release, none while you work — then let GitHub attest what it built from that tag. Two
-  commands and six lines of YAML, after which every release carries a machine-checkable
-  answer to "who authorised this" and "where did this binary come from".
-date: 2026-07-29
+  Every commit we push and every release we cut at Botanica is signed by a key sealed in a
+  Secure Enclave, and every release binary carries a GitHub build attestation. This is the
+  setup: two commands, six lines of YAML, and what the combination does and does not prove.
+date: 2026-08-26
 author: Botanica Software Labs
 tags: [secure-enclave, touch-id, ssh, git, signing, release-engineering, supply-chain, attestation, github]
 draft: true
@@ -19,72 +18,74 @@ draft: true
   Marked inline with [resource: …] placeholders.
 -->
 
-# Signed and attested releases with sod + gh
+# How we sign our commits and releases — sod + GitHub attestations
 
-> **TL;DR** — Register your [sod](https://github.com/botanica-consulting/sod) key as a GitHub
-> *signing* key, run `sd setup-git-signing --no-auto-sign-commits`, and add six lines to your
-> release workflow. From then on cutting a release costs exactly one Touch ID, the tag carries
-> a **Verified** badge, and anyone can run one `gh` command to confirm your published binary
-> was built by your CI from the commit you signed. Total setup: about two minutes.
+Every commit we push at Botanica, and every release we cut, is signed with a key that was
+generated inside a Secure Enclave and has never existed anywhere else. We use
+[sod](https://github.com/botanica-consulting/sod), our own Secure-Enclave SSH agent, so each
+signature costs a Touch ID tap — presence, per signature, enforced by hardware rather than
+by policy.
 
-A release has two separate questions attached to it, and most projects can't answer either.
+This post describes the setup as we run it, and the second half of the picture: GitHub's
+build attestations, which cover the part of a release no local signature can reach.
 
-**Who decided this release should exist?** Not "which account had a token" — which *human*.
-A signed tag answers this, and if the signing key lives in a Secure Enclave, the answer comes
-with a fingerprint attached: the signature could not have been produced anywhere but on that
-Mac, by someone physically touching it.
+## Why we sign releases at all
 
-**Is this binary actually what that source builds into?** A signature on a tag says nothing
-about the `.pkg` on your releases page. An artifact attestation answers this one: GitHub
-records what it built, from which commit, in which workflow, and signs that record.
+A release, as we see it, has two questions attached to it.
 
-Neither answers the other, and that's the point of doing both. The tag signature covers
-source → human. The attestation covers source → artifact. Chain them and a stranger can walk
-from a downloaded binary all the way back to a fingerprint on a laptop, without trusting your
-word for any step.
+The first is *who decided this release should exist* — not which account held a token, but
+which person. A signed tag answers it, and when the signing key lives in a Secure Enclave the
+answer is unusually strong: the signature could not have been produced anywhere but on that
+particular Mac, by someone physically touching it. A leaked laptop backup, a compromised CI
+runner, a stolen PAT — none of them can forge it.
 
-This post is the minimal version. No branch rulesets, no commit signing, no CI gates —
-just the two links of that chain.
+The second is *whether the binary on the releases page is actually what that source builds
+into*. A tag signature says nothing about the `.pkg` next to it; the tag covers a commit, not
+an artifact. This is where an attestation comes in — GitHub records what it built, from which
+commit, in which workflow, and signs that record.
 
----
+Neither mechanism answers the other's question, which is why we run both. The signature
+covers source → human; the attestation covers source → artifact. Chained, they let a stranger
+walk from a downloaded binary back to a fingerprint on a laptop without taking our word for
+any step in between. Recent supply-chain incidents — compromised release workflows,
+tampered artifacts published under trusted names — have mostly lived in exactly the gap
+between those two links.
 
-## Part 1: tell GitHub your key is allowed to sign
+## Telling GitHub the key may sign
 
 GitHub keeps *authentication* keys and *signing* keys in two separate lists, and the same key
-can sit in both. Your sod key is already in the auth list — that's how you push. It needs to be
-in the signing list too, or your signatures will be perfectly valid and GitHub will still
-refuse to show the green **Verified** badge.
+can sit in both. Our sod keys were already in the auth list — that's how we push. Adding them
+to the signing list is what makes the green **Verified** badge appear; without it the
+signatures are still valid, GitHub just won't vouch for them.
 
-sod deliberately never touches your GitHub account, so this half is yours to do. Adding a
-signing key needs a scope your token probably lacks, so grant it once:
+sod deliberately never touches a GitHub account, so this step is manual:
 
 ```sh
 gh auth refresh -h github.com -s admin:ssh_signing_key
 gh ssh-key add ~/.ssh/id_sod.pub --type signing --title "sod (Secure Enclave)"
 ```
 
-Or paste the key at [github.com/settings/ssh/new](https://github.com/settings/ssh/new) with
-the type set to **Signing key**. Either way it's one time per key, not per repo.
+(Or paste the key at [github.com/settings/ssh/new](https://github.com/settings/ssh/new) with
+the type set to **Signing key**.) Once per key, not per repo.
 
-## Part 2: sign tags, not commits
+## Configuring the repo
 
 ```sh
-sd setup-git-signing --no-auto-sign-commits
+sd setup-git-signing
 ```
 
-That's the whole repo-side setup. It points `user.signingkey` at your *public* key so
-`ssh-keygen -Y sign` routes through the sod agent into the Secure Enclave, sets
-`tag.gpgsign=true`, and leaves `commit.gpgsign` alone.
+That's the whole repo-side setup. It points `user.signingkey` at the *public* key so git's
+SSH signing routes through the sod agent into the Secure Enclave, and turns on
+`commit.gpgsign` and `tag.gpgsign` — every commit and every tag signed, by default.
 
-The flag is the interesting part. Signing every commit sounds more rigorous, but the Secure
-Enclave asks for presence on *every* signature — there's no batching, by design — so a
-twelve-commit branch is twelve Touch ID prompts. That friction is how good practices die.
-Tags-only costs you **zero taps while you work and one per release**, which is a price nobody
-resents paying, and it puts the signature exactly where the decision is: cutting a release.
+The obvious objection is friction: the Secure Enclave asks for presence on every signature,
+with no batching, so a day of work is a handful of taps. In practice we stopped noticing
+within a week — a tap at commit time is quicker than the commit message. For those who
+weigh it differently, `--no-auto-sign-commits` keeps signing for tags only, which still puts
+a signature exactly where the release decision is made; the rest of this post is unchanged
+either way.
 
-If you do want signed commits too, drop the flag. The rest of this post is unchanged.
-
-## Part 3: cut the tag
+## Cutting a release
 
 ```sh
 git tag -s v0.2.0 -m v0.2.0     # [resource: Touch ID sheet]
@@ -93,20 +94,21 @@ git push origin v0.2.0
 
 [resource: screenshot — Verified badge on the tag]
 
-Two things worth knowing, because both produce a release with no badge and neither is obvious:
+Two things we learned produce a badge-less release, neither of them loudly:
 
-**Lightweight tags can't be signed.** `git tag v0.2.0` with no `-m` or `-a` creates a bare ref
-pointing at a commit — there's no tag object, so there's nothing to hold a signature. With
-`tag.gpgsign=true` set, git won't let you make that mistake silently: a bare `git tag v0.2.0`
-stops with `fatal: no tag message?` rather than quietly creating an unsignable tag.
+**Lightweight tags can't be signed.** `git tag v0.2.0` with no `-m` or `-a` creates a bare
+ref with no tag object, so there is nothing to hold a signature. With `tag.gpgsign=true` set,
+git at least refuses noisily — a bare `git tag v0.2.0` stops with `fatal: no tag message?`
+rather than quietly creating an unsignable tag.
 
-**Don't cut releases from the GitHub web UI.** Creating a release from the Releases page makes
-the tag server-side, where your Secure Enclave isn't. That tag is unsigned and unsignable
-after the fact. Tag locally, push the tag, and let the workflow build the release.
+**Releases cut from the GitHub web UI are unsigned.** Creating a release from the Releases
+page makes the tag server-side, where the Secure Enclave isn't. That tag is unsignable after
+the fact. We tag locally, push the tag, and let the workflow build the release.
 
-## Part 4: attest the build
+## Attesting the build
 
-Now the other half of the chain. In your release workflow, widen the permissions:
+The other half of the chain lives in the release workflow. The permissions block gains two
+entries:
 
 ```yaml
 permissions:
@@ -115,7 +117,7 @@ permissions:
   attestations: write    # store the attestation on the repo
 ```
 
-and add one step, after you've built your artifacts and before you publish them:
+and one step goes in after the artifacts are built:
 
 ```yaml
       - name: Attest the release artifacts
@@ -124,18 +126,15 @@ and add one step, after you've built your artifacts and before you publish them:
           subject-checksums: dist/SHA256SUMS.txt
 ```
 
-If you already generate a checksums file — and you should — `subject-checksums` attests
-everything listed in it in a single step. Otherwise use `subject-path`, which takes a glob:
-`subject-path: 'dist/*.pkg'`.
+We already generate a checksums file, so `subject-checksums` attests everything in it at
+once; `subject-path: 'dist/*.pkg'` works when there isn't one. There is no key to generate,
+store, or rotate — the signing identity is the workflow's own OIDC token. For a public repo
+the attestation also lands in the public Sigstore transparency log, so verifying it doesn't
+depend on trusting us, or on GitHub remaining cooperative later.
 
-That's six lines. There is no key to generate, store, or rotate: the signing identity is the
-workflow's own OIDC token, and GitHub does the rest. For a public repo the attestation is
-recorded in the public-good Sigstore transparency log, so verification doesn't depend on
-trusting you — or on GitHub still being cooperative later.
+## Verifying — what anyone can now check
 
-## Part 5: the payoff
-
-Here's what a stranger can now do with nothing but your release URL:
+With nothing but the release URL:
 
 ```sh
 gh release download v0.2.0 -R botanica-consulting/sod -p 'sod-*.pkg'
@@ -144,58 +143,55 @@ gh attestation verify sod-0.2.0.pkg -R botanica-consulting/sod \
   --source-ref refs/tags/v0.2.0
 ```
 
-That checks the binary's digest against a signed provenance record and asserts it was built by
-that repo's workflow from that tag. `--source-digest <sha>` pins the exact commit instead, and
-`--signer-workflow botanica-consulting/sod/.github/workflows/release.yml` pins which workflow
-was allowed to produce it — worth adding if you have more than one.
+That checks the binary's digest against a signed provenance record: built by that repo's
+workflow, from that tag. `--source-digest <sha>` pins the exact commit instead, and
+`--signer-workflow` pins which workflow was allowed to produce it — worth adding when a repo
+has more than one.
 
 [resource: terminal capture — successful gh attestation verify]
 
-Then close the loop back to the human:
+Then the loop closes back to the human:
 
 ```sh
 git verify-tag v0.2.0
 ```
 
-The badge on GitHub's tag page is the zero-effort version of this. `git verify-tag` is the
-version that doesn't require trusting GitHub's rendering — it needs the signer's public key in
-your `allowed_signers` file, which is a reasonable thing to ask of a downstream packager and
-an unreasonable thing to ask of a casual user. Publish your signing key somewhere quotable and
-let people choose their level.
+The badge on GitHub's tag page is the zero-effort version of this; `git verify-tag` is the
+version that doesn't require trusting GitHub's rendering. It needs the signer's public key in
+an `allowed_signers` file — a reasonable thing to ask of a downstream packager, less so of a
+casual user, which is why we publish our signing keys somewhere quotable and let people pick
+their level.
 
-Run both and the chain is closed:
-
-| Question | Answered by | What it rests on |
+| Question | Answered by | Rests on |
 |---|---|---|
-| Which human authorised this release? | `git verify-tag` / the Verified badge | a key that cannot leave the Secure Enclave, used with a fingerprint |
+| Which human authorised this release? | `git verify-tag` / the Verified badge | a key that cannot leave the Secure Enclave |
 | Which commit does that cover? | the tag object | the tag points at a commit SHA |
-| Was this binary built from that commit? | `gh attestation verify --source-digest` | GitHub's OIDC identity, logged in Sigstore |
+| Was this binary built from that commit? | `gh attestation verify` | GitHub's OIDC identity, logged in Sigstore |
 
-## What this does not do
+## What this does not get us
 
-Worth being precise, because the adjacent claims are tempting and false.
+We try to be precise here, because the adjacent claims are tempting.
 
-**This is provenance, not access control.** GitHub cannot enforce that tags are signed. The
-`required_signatures` ruleset rule only ever inspects commits reachable from a *branch*; point
-a ruleset at tags and it is silently inert. So anyone with write access can still push an
-unsigned tag and cut a release from it — what they can't do is make it *look* like you did.
-The absence of a badge is the signal. If you want to restrict who may create `refs/tags/v*`,
-that's a separate ruleset and it gates GitHub accounts, not fingerprints.
+**This is provenance, not access control.** GitHub cannot enforce that tags are signed — the
+`required_signatures` ruleset rule only inspects commits reachable from a *branch*; pointed
+at tags it is silently inert. Anyone with write access can still push an unsigned tag; what
+they cannot do is make it look like one of us did. The absence of a badge is the signal.
 
-**An attestation says where a binary came from, not that it's any good.** It proves your
-workflow built it from that commit. If the commit contains a backdoor, the attestation
-faithfully proves the backdoor was built by you, from that tag, on the record. That's still
-worth a great deal — it's the difference between a supply-chain incident you can reconstruct
-and one you can only guess at — but it is not a safety claim.
+**An attestation says where a binary came from, not that it's any good.** If a commit
+contains a backdoor, the attestation faithfully proves the backdoor was built by our
+workflow, from that tag, on the record. That is still worth a great deal — it's the
+difference between a supply-chain incident that can be reconstructed and one that can only
+be guessed at — but it is not a safety claim.
 
-**A tap proves presence, not attention.** The Secure Enclave confirms a human was at the
-keyboard when the signature was made. It cannot confirm that they read the diff.
+**A tap proves presence, not attention.** The Secure Enclave confirms one of us was at the
+keyboard when the signature was made. It cannot confirm we read the diff.
 
-What you get for two commands and six lines of YAML is this: every release you ship carries a
-verifiable statement about who authorised it and where it came from, and the routine cost of
-maintaining that is one fingerprint per release. That ratio is the reason to bother.
+What the setup costs us is a tap per commit and one per release; what it buys is that every
+release we ship carries a machine-checkable statement of who authorised it and where it came
+from. We find that ratio easy to live with.
 
 ---
 
 *sod is a Secure-Enclave-backed SSH agent and keygen for macOS —
-[github.com/botanica-consulting/sod](https://github.com/botanica-consulting/sod).*
+[github.com/botanica-consulting/sod](https://github.com/botanica-consulting/sod). If you
+haven't met it before, the [introduction](sod-intro.md) covers the everyday SSH side.*
